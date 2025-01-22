@@ -1,0 +1,26 @@
+Ctx cancellation is great but we actually want to propagate down the tree with exits and let them
+roll back upwards. Let adhoc processes terminate from the ctx cancellation directly
+
+Run as VM - load the .so file and run the Application interface
+Run as Builder - build the .so file and run the Application interface
+Run as Both - one single command to run the Application interface either to handle building before running when needed
+
+Application Config with Overlays
+Logger setup. Need both log and slog configured from the environment.
+Need to be able to set the log levels
+
+The Rest of Application
+The Rest of StaticSupervisor
+The Rest of DynamicSupervisor
+Actually implement PartitionSupervisor
+The Rest of Registry
+The Rest of GenServer
+Actually implement Task
+Actually implement Agent
+
+PubSub is a nice to have
+
+Actually implement Node
+Actually implement PID with embedded Node and Change fields
+Implement some form of message serialization IDEALLY SOMETHING LIKE ZERO ALLOC PROTOBUF
+Actually implement Clustering

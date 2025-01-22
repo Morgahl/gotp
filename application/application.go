@@ -1,0 +1,84 @@
+package application
+
+import (
+	"fmt"
+
+	"github.com/Morgahl/gotp"
+	"github.com/Morgahl/gotp/supervisor"
+)
+
+type startType uint8
+
+const (
+	NORMAL startType = iota
+	TAKEOVER
+	FAILOVER
+)
+
+type StartType struct {
+	startType startType
+	node      gotp.Node
+}
+
+func Normal() StartType {
+	return StartType{startType: NORMAL}
+}
+
+func Takeover(node gotp.Node) StartType {
+	return StartType{startType: TAKEOVER, node: node}
+}
+
+func Failover(node gotp.Node) StartType {
+	return StartType{startType: FAILOVER, node: node}
+}
+
+func (st StartType) String() string {
+	switch st.startType {
+	case NORMAL:
+		return "normal"
+	case TAKEOVER:
+		return fmt.Sprintf("takeover=%s", st.node)
+	case FAILOVER:
+		return fmt.Sprintf("failover=%s", st.node)
+	default:
+		return "unknown"
+	}
+}
+
+func (st StartType) IsNormal() bool {
+	return st.startType == NORMAL
+}
+
+func (st StartType) IsTakeover() (node gotp.Node, exists bool) {
+	if st.startType == TAKEOVER {
+		return st.node, true
+	}
+	return
+}
+
+func (st StartType) IsFailover() (node gotp.Node, exists bool) {
+	if st.startType == FAILOVER {
+		return st.node, true
+	}
+	return
+}
+
+type Application interface {
+	Name() string
+	Start(StartType) (supervisor.Supervisable, error)
+}
+
+type PrepareStop interface {
+	Application
+	PrepareStop() error
+}
+
+type Stop interface {
+	Application
+	Stop() error
+}
+
+type Runtime struct {
+	node gotp.Node
+	apps map[string]Application
+}
