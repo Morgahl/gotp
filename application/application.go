@@ -49,14 +49,14 @@ func (st StartType) IsNormal() bool {
 	return st.startType == NORMAL
 }
 
-func (st StartType) IsTakeover() (node gotp.Node, exists bool) {
+func (st StartType) IsTakeover() (node gotp.Node, ok bool) {
 	if st.startType == TAKEOVER {
 		return st.node, true
 	}
 	return
 }
 
-func (st StartType) IsFailover() (node gotp.Node, exists bool) {
+func (st StartType) IsFailover() (node gotp.Node, ok bool) {
 	if st.startType == FAILOVER {
 		return st.node, true
 	}
@@ -65,6 +65,7 @@ func (st StartType) IsFailover() (node gotp.Node, exists bool) {
 
 type Application interface {
 	Name() string
+	Version() Version
 	Start(StartType) (supervisor.Supervisable, error)
 }
 
@@ -76,9 +77,4 @@ type PrepareStop interface {
 type Stop interface {
 	Application
 	Stop() error
-}
-
-type Runtime struct {
-	node gotp.Node
-	apps map[string]Application
 }
