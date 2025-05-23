@@ -1,8 +1,9 @@
 package gotp
 
 import (
-	"context"
+	"log/slog"
 	"sync"
+	"time"
 )
 
 const (
@@ -11,7 +12,7 @@ const (
 
 type Registerable[ID comparable] interface {
 	ID() ID
-	Send(context.Context, Msg) error
+	Send(Msg, time.Duration) error
 }
 
 type Registry[ID comparable] struct {
@@ -41,5 +42,6 @@ func (r *Registry[ID]) Put(p Registerable[ID]) {
 func (r *Registry[ID]) Delete(p Registerable[ID]) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	slog.Debug("Registry.Delete", "pid", p.ID())
 	delete(r.procs, p.ID())
 }

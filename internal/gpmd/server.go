@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net"
 	"net/netip"
 
@@ -48,7 +48,7 @@ func (s *Server) Listen() (err error) {
 			default:
 				conn, err := listener.Accept()
 				if err != nil {
-					log.Printf("failed to accept connection: %s", err.Error())
+					slog.Error("failed to accept connection", "error", err)
 					continue
 				}
 
@@ -76,16 +76,14 @@ func (s *Server) handleConnection(conn net.Conn) {
 			return
 		case nil:
 		default:
-			log.Printf("failed to decode action: %s", err)
+			slog.Error("failed to decode action", "error", err)
 			return
 		}
-
-		log.Printf("<<< %s", action)
 
 		switch action.ActionType {
 		default:
 			err := fmt.Errorf("unknown action type: %s", action.ActionType)
-			log.Println(err)
+			slog.Error("unknown action type", "error", err)
 			result := ErrorResult[None](action.ActionType, err)
 			if err := send(enc, result); err != nil {
 				return
@@ -192,10 +190,9 @@ func (s *Server) checkCtxs() error {
 func send[R JSONable](enc *json.Encoder, result ActionResult[R]) error {
 	if err := enc.Encode(result); err != nil {
 		err = fmt.Errorf("failed to encode action result: %w", err)
-		log.Println(err)
+		slog.Error("failed to encode", "error", err)
 		return err
 	}
 
-	log.Printf(">>> %s", result)
 	return nil
 }

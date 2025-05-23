@@ -1,8 +1,6 @@
 package gotp
 
 import (
-	"context"
-	"slices"
 	"sync"
 	"time"
 )
@@ -40,101 +38,31 @@ func WithTimeout[M any](dur time.Duration, cb func() M) ReceiveOpt[M] {
 }
 
 type Mailbox[M Msg] struct {
-	context.Context
-	cancel    context.CancelCauseFunc
-	ch        chan M
-	unhandled []M
-	mu        sync.RWMutex
+	mu sync.RWMutex
+	ch chan M
 }
 
-func NewMailbox[M Msg](parent context.Context, bufferSize int) Mailbox[M] {
-	ctx, cancel := context.WithCancelCause(parent)
-	return Mailbox[M]{Context: ctx, cancel: cancel, ch: make(chan M, bufferSize)}
+func NewMailbox[M Msg](bufferSize int) Mailbox[M] {
+	return Mailbox[M]{ch: make(chan M, bufferSize)}
 }
 
-func (m *Mailbox[M]) Cancel(err error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.cancel(err)
-}
-
-func (m *Mailbox[M]) Send(ctx context.Context, msg M) error {
+func (m *Mailbox[M]) Send(msg M, timeout time.Duration) error {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	select {
-	case <-ctx.Done():
-		return NewTimeout(ctx.Err())
-	case m.ch <- msg:
-		return nil
-	}
-}
-
-// Receive attempts to match a message using the provided match function.
-// If no match is found immediately, it continues listening until a match is received,
-// the context is cancelled (Inbox.Done), or the timeout is reached.
-// This is designed to support cascading if-else matching logic:
-//
-//	if val, ok := inbox.Receive(ctx, match1); ok { ... }
-//	else if val, ok := inbox.Receive(ctx, match2); ok { ... }
-//	else if ctx.Err() != nil { ... } // safe fallback when all fails.
-func (m *Mailbox[M]) Receive(match func(M) bool, opts ...ReceiveOpt[M]) (M, bool) {
-	var zero M
-	config := receiveOpts[M]{
-		timeout: DEFAULT_TIMEOUT,
-	}
-	for _, opt := range opts {
-		opt(&config)
-	}
-	for idx := 0; idx < len(m.unhandled); {
+	if timeout > 0 {
 		select {
-		case <-m.Done():
-			return zero, false
-
-		default:
-			if um := m.unhandled[idx]; match(um) {
-				m.unhandled = slices.Delete(m.unhandled, idx, idx+1)
-				return um, true
-			}
-			idx++
-		}
-	}
-
-	if config.timeout <= 0 {
-		for {
-			select {
-			case <-m.Done():
-				var zero M
-				return zero, false
-
-			case msg := <-m.ch:
-				if match(msg) {
-					return msg, true
-				}
-				m.unhandled = append(m.unhandled, msg)
-			}
+		case <-time.After(timeout):
+			return NewTimeout(timeout)
+		case m.ch <- msg:
 		}
 	} else {
-		timer := time.NewTimer(config.timeout)
-		defer timer.Stop()
-		for {
-			select {
-			case <-m.Done():
-				var zero M
-				return zero, false
-
-			case <-timer.C:
-				if config.onTimeout != nil {
-					return config.onTimeout(), true
-				}
-				var zero M
-				return zero, false
-
-			case msg := <-m.ch:
-				if match(msg) {
-					return msg, true
-				}
-				m.unhandled = append(m.unhandled, msg)
-			}
-		}
+		m.ch <- msg
 	}
+	return nil
+}
+
+func (m *Mailbox[M]) Receive() <-chan M {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.ch
 }

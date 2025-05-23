@@ -3,7 +3,7 @@ package gpmd
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/netip"
 	"sync"
 	"time"
@@ -151,7 +151,7 @@ func (r *GPMD) checkCtxs() error {
 
 func (r *GPMD) run() error {
 	for _, addr := range r.addresses {
-		log.Printf("listening on %s", addr)
+		slog.Info("listening on", "address", addr)
 		if _, err := NewServer(r.ctx, addr, r); err != nil {
 			return err
 		}

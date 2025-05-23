@@ -1,9 +1,10 @@
 package server
 
 import (
-	"context"
+	"errors"
 	"fmt"
-	"log"
+	"log/slog"
+	"time"
 
 	"github.com/Morgahl/gotp"
 	"github.com/Morgahl/gotp/supervisor"
@@ -44,9 +45,9 @@ func Start[
 	Cast gotp.Msg,
 	Info gotp.Msg,
 	Cont any,
-](ctx context.Context, server Serverable[Call, Resp, Cast, Info, Cont], opts ...gotp.SpawnOpt) *Server[Call, Resp, Cast, Info, Cont] {
-	log.Printf("Start: %v", opts)
-	return New(server).Start(ctx, opts...)
+](server Serverable[Call, Resp, Cast, Info, Cont], timeout time.Duration, opts ...gotp.SpawnOpt) (supervisor.Supervisable, error) {
+	slog.Debug("Server.Start", slog.String("opts", fmt.Sprintf("%v", opts)))
+	return New(server).Start(timeout, opts...)
 }
 
 func StartLink[
@@ -55,9 +56,9 @@ func StartLink[
 	Cast gotp.Msg,
 	Info gotp.Msg,
 	Cont any,
-](ctx context.Context, link gotp.PID, server Serverable[Call, Resp, Cast, Info, Cont], opts ...gotp.SpawnOpt) (supervisor.Supervisable, error) {
-	log.Printf("StartLink: %v", link)
-	return New(server).StartLink(ctx, link, opts...)
+](link gotp.PID, server Serverable[Call, Resp, Cast, Info, Cont], timeout time.Duration, opts ...gotp.SpawnOpt) (supervisor.Supervisable, error) {
+	slog.Debug("Server.StartLink", slog.String("link", link.String()))
+	return New(server).StartLink(link, timeout, opts...)
 }
 
 func New[
@@ -67,28 +68,36 @@ func New[
 	Info gotp.Msg,
 	Cont any,
 ](server Serverable[Call, Resp, Cast, Info, Cont]) *Server[Call, Resp, Cast, Info, Cont] {
-	log.Printf("New: %v", server)
 	return &Server[Call, Resp, Cast, Info, Cont]{server: server}
 }
 
-func (s *Server[Call, Resp, Cast, Info, Cont]) Start(ctx context.Context, opts ...gotp.SpawnOpt) *Server[Call, Resp, Cast, Info, Cont] {
-	log.Printf("Server.Start: %v", opts)
-	s.setupProc(ctx, gotp.PIDZero(), opts...)
-	return s
-}
+func (s *Server[Call, Resp, Cast, Info, Cont]) Start(timeout time.Duration, opts ...gotp.SpawnOpt) (supervisor.Supervisable, error) {
+	slog.Debug("Server.Start", slog.String("opts", fmt.Sprintf("%v", opts)))
 
-func (s *Server[Call, Resp, Cast, Info, Cont]) StartLink(ctx context.Context, link gotp.PID, opts ...gotp.SpawnOpt) (supervisor.Supervisable, error) {
-	log.Printf("Server.StartLink: %v", link)
+	if timeout <= 0 {
+		timeout = gotp.DEFAULT_TIMEOUT
+	}
+
 	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case <-s.setupProc(ctx, link, opts...):
+	case <-time.After(timeout):
+		return nil, gotp.NewTimeout(timeout)
+	case <-s.setupProc(gotp.PIDZero(), timeout, opts...):
 		return s, nil
 	}
 }
 
-func (s *Server[Call, Resp, Cast, Info, Cont]) Stop(ctx context.Context, reason error) error {
-	return s.process.Send(ctx, gotp.NewExit(s.ID(), reason))
+func (s *Server[Call, Resp, Cast, Info, Cont]) StartLink(link gotp.PID, timeout time.Duration, opts ...gotp.SpawnOpt) (supervisor.Supervisable, error) {
+	slog.Debug("Server.StartLink", slog.String("link", link.String()))
+	if timeout <= 0 {
+		timeout = gotp.DEFAULT_TIMEOUT
+	}
+
+	select {
+	case <-time.After(timeout):
+		return nil, gotp.NewTimeout(timeout)
+	case <-s.setupProc(link, timeout, opts...):
+		return s, nil
+	}
 }
 
 func (s *Server[Call, Resp, Cast, Info, Cont]) ID() gotp.PID {
@@ -99,41 +108,62 @@ func (s *Server[Call, Resp, Cast, Info, Cont]) ChildSpec() supervisor.ChildSpec 
 	return s.server.ChildSpec()
 }
 
-func (s *Server[Call, Resp, Cast, Info, Cont]) Call(ctx context.Context, msg Call) (resp Resp, err error) {
-	log.Printf("Server.Call: %v", msg)
+func (s *Server[Call, Resp, Cast, Info, Cont]) Call(msg Call, timeout time.Duration) (resp Resp, err error) {
+	slog.Debug("Server.Call", slog.String("msg", fmt.Sprintf("%v", msg)))
 	call := newCallMsg[Call, Resp](msg, s.process.ID())
-	if err = s.process.Send(ctx, call); err != nil {
+	if err = s.process.Send(call, timeout); err != nil {
 		return resp, err
 	}
 
+	if timeout <= 0 {
+		timeout = gotp.DEFAULT_TIMEOUT
+	}
+
 	select {
-	case <-ctx.Done():
-		return resp, gotp.NewTimeout(ctx.Err())
+	case <-time.After(timeout):
+		return resp, gotp.NewTimeout(timeout)
 
 	case resp := <-call.resp:
 		return resp, nil
 	}
 }
 
-func (s *Server[Call, Resp, Cast, Info, Cont]) Cast(ctx context.Context, msg Cast) error {
-	log.Printf("Server.Cast: %v", msg)
-	return s.process.Send(ctx, newCastMsg(msg))
+func (s *Server[Call, Resp, Cast, Info, Cont]) Cast(msg Cast, timeout time.Duration) error {
+	slog.Debug("Server.Cast", slog.String("msg", fmt.Sprintf("%v", msg)))
+	return s.process.Send(newCastMsg(msg), timeout)
 }
 
-func (s *Server[Call, Resp, Cast, Info, Cont]) Info(ctx context.Context, msg Info) error {
-	log.Printf("Server.Info: %v", msg)
-	return s.process.Send(ctx, newInfoMsg(msg))
+func (s *Server[Call, Resp, Cast, Info, Cont]) Info(msg Info, timeout time.Duration) error {
+	slog.Debug("Server.Info", slog.String("msg", fmt.Sprintf("%v", msg)))
+	return s.process.Send(newInfoMsg(msg), timeout)
 }
 
-func (s *Server[Call, Resp, Cast, Info, Cont]) setupProc(ctx context.Context, link gotp.PID, opts ...gotp.SpawnOpt) <-chan struct{} {
+func (s *Server[Call, Resp, Cast, Info, Cont]) Exit(reason error, timeout time.Duration) error {
+	slog.Error("Server.Exit", "reason", reason)
+	return s.process.Send(gotp.NewExit(s.ID(), reason), timeout)
+}
+
+func (s *Server[Call, Resp, Cast, Info, Cont]) Exited() bool {
+	slog.Debug("Server.Exited")
+	return s.process.Exited()
+}
+
+func (s *Server[Call, Resp, Cast, Info, Cont]) Send(msg gotp.Msg, timeout time.Duration) error {
+	slog.Debug("Server.Send", slog.String("msg", fmt.Sprintf("%v", msg)))
+	if s.process == nil {
+		return errors.New("Server not started")
+	}
+	return s.process.Send(msg, timeout)
+}
+
+func (s *Server[Call, Resp, Cast, Info, Cont]) setupProc(link gotp.PID, timeout time.Duration, opts ...gotp.SpawnOpt) <-chan struct{} {
 	sig := make(chan struct{})
-	s.process = gotp.SpawnLink(ctx, link, s.loop(sig), opts...)
+	s.process = gotp.SpawnLink(link, s.loop(sig), timeout, opts...)
 	return sig
 }
 
-// We reimplement the loop function using Mailbox.Receive(match, ...) Mailbox.Chan no longer exists and should not be used.
 func (s *Server[Call, Resp, Cast, Info, Cont]) loop(sig chan struct{}) gotp.RunFn {
-	return func(ctx context.Context, p *gotp.Process) (reason error) {
+	return func(_ *gotp.Process, in <-chan gotp.Msg) (reason error) {
 		var cont Continue[Cont]
 		defer func() {
 			if r := recover(); r != nil {
@@ -143,40 +173,35 @@ func (s *Server[Call, Resp, Cast, Info, Cont]) loop(sig chan struct{}) gotp.RunF
 					reason = fmt.Errorf("reason: %w, panic: %v", reason, r)
 				}
 			}
-			reason = s.server.Terminate(reason)
-			s.process.Exit(ctx, reason)
+			if err := s.process.Exit(s.server.Terminate(reason), 0); err != nil {
+				slog.Error("Server.loop: failed to exit process", "error", err)
+			}
 		}()
 
-		log.Printf("Server.loop: before init")
+		slog.Debug("Server.loop: before init")
 
 		cont, reason = s.server.Init(s.conf)
 		close(sig)
 
-		log.Printf("Server.loop: after init")
+		slog.Debug("Server.loop: after init")
 		for {
 			if reason != nil {
 				return // stop processing messages
+			} else if cont.atom == CONTINUE {
+				slog.Debug("Server.loop: continue")
+				// We have a continuation, we should process it first and then continue the loop.
+				cont, reason = s.server.HandleContinue(cont.arg)
+				continue
 			}
 
-			select {
-			case <-ctx.Done():
-				log.Printf("Server.loop: context done")
-				// The context has been cancelled, we should stop processing messages and exit normally.
-				return
+			for msg := range in {
+				slog.Debug("Server.loop: received message", "msg", msg)
 
-			default:
-				if cont.atom == CONTINUE {
-					log.Printf("Server.loop: continue")
-					// We have a continuation, we should process it first and then continue the loop.
-					cont, reason = s.server.HandleContinue(cont.arg)
-					continue
-				}
-
-				if msg, ok := p.Receive(matchCall[Call, Resp]); ok {
+				switch msg := msg.(type) {
+				case callMsg[Call, Resp]:
+					slog.Debug("Server.loop: call")
 					// We have a synchronous call and a chan to close after conditionally sending a
 					// response back to the caller.
-					log.Printf("Server.loop: call")
-					msg := msg.(callMsg[Call, Resp])
 					var resp Response[Resp]
 					switch resp, cont, reason = s.server.HandleCall(msg.req, msg.from); resp.atom {
 					case NO_REPLY:
@@ -189,70 +214,31 @@ func (s *Server[Call, Resp, Cast, Info, Cont]) loop(sig chan struct{}) gotp.RunF
 						msg.resp <- resp.resp
 						close(msg.resp)
 					}
-				} else if msg, ok := p.Receive(matchCast[Cast]); ok {
+
+				case castMsg[Cast]:
+					slog.Debug("Server.loop: cast", "msg", msg)
 					// We have an asynchronous call
-					log.Printf("Server.loop: cast")
-					msg := msg.(castMsg[Cast])
 					cont, reason = s.server.HandleCast(msg.cast)
-				} else if msg, ok := p.Receive(matchInfo[Info]); ok {
+
+				case infoMsg[Info]:
+					slog.Debug("Server.loop: info", "msg", msg)
 					// We have an Info message
-					log.Printf("Server.loop: info")
-					msg := msg.(infoMsg[Info])
 					cont, reason = s.server.HandleInfo(msg.info)
-				} else if msg, ok := p.Receive(matchExit); ok {
+
+				case gotp.Exit:
 					// We have an Exit message
-					log.Printf("Server.loop: exit")
-					msg := msg.(gotp.Exit)
 					if msg.PID() == s.process.ID() {
 						// We have been asked to terminate
+						slog.Debug("Server.loop: exit")
 						return msg.Unwrap()
 					}
-				} else if msg, ok := p.Receive(matchAny); ok {
+
+				default:
+					slog.Debug("Server.loop: default", "msg", msg)
 					// We have an Info or some other message that we don't know how to handle.
-					log.Printf("Server.loop: default")
 					cont, reason = s.server.HandleAny(msg)
-				} else if ctx.Err() != nil {
-					log.Printf("Server.loop: context done")
-					// The context has been cancelled, we should stop processing messages and exit normally.
-					return ctx.Err()
-				} else {
-					log.Printf("Server.loop: no message")
-					// No message received, continue the loop.
-					continue
 				}
 			}
 		}
 	}
-}
-
-func matchCall[Call gotp.Msg, Resp gotp.Msg](msg gotp.Msg) bool {
-	if _, ok := msg.(callMsg[Call, Resp]); ok {
-		return true
-	}
-	return false
-}
-
-func matchCast[Cast gotp.Msg](msg gotp.Msg) bool {
-	if _, ok := msg.(castMsg[Cast]); ok {
-		return true
-	}
-	return false
-}
-
-func matchInfo[Info gotp.Msg](msg gotp.Msg) bool {
-	if _, ok := msg.(infoMsg[Info]); ok {
-		return true
-	}
-	return false
-}
-
-func matchExit(msg gotp.Msg) bool {
-	if _, ok := msg.(gotp.Exit); ok {
-		return true
-	}
-	return false
-}
-
-func matchAny(msg gotp.Msg) bool {
-	return true
 }

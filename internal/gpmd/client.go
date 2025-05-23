@@ -3,7 +3,6 @@ package gpmd
 import (
 	"context"
 	"encoding/json"
-	"log"
 	"net"
 	"net/netip"
 )
@@ -34,7 +33,6 @@ func (c *Client) Close() error {
 }
 
 func Do[R JSONable](client *Client, action ActionRequest) (ActionResult[R], error) {
-	log.Printf(">>> %s", action)
 	if err := client.enc.Encode(action); err != nil {
 		return ActionResult[R]{}, err
 	}
@@ -43,7 +41,6 @@ func Do[R JSONable](client *Client, action ActionRequest) (ActionResult[R], erro
 	if err := client.dec.Decode(&result); err != nil {
 		return ActionResult[R]{}, err
 	}
-	log.Printf("<<< %s", result)
 
 	return result, nil
 }

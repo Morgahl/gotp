@@ -1,14 +1,14 @@
 package gotp
 
 import (
-	"context"
 	"fmt"
+	"log/slog"
 	"time"
 )
 
 type SpawnOpt func(*Process)
 
-type RunFn func(ctx context.Context, proc *Process) error
+type RunFn func(*Process, <-chan Msg) error
 
 type Process struct {
 	pid    PID
@@ -19,108 +19,94 @@ type Process struct {
 	deregHandle func()
 }
 
-func Spawn(ctx context.Context, fn RunFn, opts ...SpawnOpt) *Process {
+func Spawn(fn RunFn, timeout time.Duration, opts ...SpawnOpt) *Process {
 	p := build(PID{}, opts)
 	p.deregHandle = register(p)
-	ctx = p.setupContext(ctx)
-	go p.run(ctx, fn)
+	go p.run(fn)
 	return p
 }
 
-func SpawnLink(ctx context.Context, link PID, fn RunFn, opts ...SpawnOpt) *Process {
+func SpawnLink(link PID, fn RunFn, timeout time.Duration, opts ...SpawnOpt) *Process {
 	p := build(link, opts)
 	p.deregHandle = register(p)
-	ctx = p.setupContext(ctx)
-	go p.run(ctx, fn)
+	go p.run(fn)
 	return p
 }
 
 func build(link PID, opts []SpawnOpt) *Process {
-	ctx := context.Background()
 	p := &Process{pid: nextPID(), linked: link}
 	for _, opt := range opts {
 		opt(p)
 	}
 	if p.mailbox.ch == nil {
-		p.mailbox = NewMailbox[Msg](ctx, MAILBOX_SIZE)
+		p.mailbox = NewMailbox[Msg](MAILBOX_SIZE)
 	}
 	return p
 }
 
-func (p *Process) setupContext(ctx context.Context) context.Context {
-	if !p.linked.IsZero() {
-		ctx = context.WithValue(ctx, linkedKey{}, p.linked)
-	}
-	ctx = context.WithValue(ctx, pidKey{}, p.pid)
-	return ctx
-}
-
-func (p *Process) run(ctx context.Context, fn RunFn) {
+func (p *Process) run(fn RunFn) {
 	var reason error
-	defer p.cleanup(ctx, &reason)
-	reason = fn(ctx, p)
+	defer p.cleanup(&reason, 0)
+	reason = fn(p, p.mailbox.ch)
 }
 
-func (p *Process) cleanup(ctx context.Context, reason *error) {
-	var haveLock bool
+func (p *Process) cleanup(reason *error, timeout time.Duration) error {
+	p.mailbox.mu.Lock()
+	defer p.mailbox.mu.Unlock()
+	if p.deregHandle == nil {
+		slog.Debug("Process already deregistered", "pid", p.pid)
+		return nil
+	}
+
+	defer func() {
+		p.deregHandle()
+		p.deregHandle = nil
+	}()
 	if r := recover(); r != nil {
-		p.mailbox.mu.Lock()
-		haveLock = true
+		slog.Error("Process panicked", "pid", p.pid, "reason", r)
 		if reason != nil {
 			p.reason = fmt.Errorf("reason: %v, panic: %v", *reason, r)
 		} else {
 			p.reason = fmt.Errorf("panic: %v", r)
 		}
+	} else if *reason != nil {
+		p.reason = *reason
 	}
-	if !haveLock {
-		p.mailbox.mu.Lock()
-	}
-	defer p.mailbox.mu.Unlock()
-	defer p.deregHandle()
-	p.mailbox.Cancel(p.reason)
+
 	if !p.linked.IsZero() {
-		Send(ctx, p.linked, NewExit(p.pid, p.reason))
+		slog.Debug("Process sending exit to linked process", "pid", p.pid, "linked", p.linked)
+		return Send(p.linked, NewExit(p.pid, p.reason), timeout)
 	}
+	slog.Debug("Process exiting: %v", "pid", p.pid, "reason", p.reason)
+	return nil
 }
 
-func (p *Process) Exit(ctx context.Context, reason error) error {
-	p.cleanup(ctx, &reason)
-	select {
-	case <-p.mailbox.ch:
-		return p.reason
-	case <-ctx.Done():
-		return ctx.Err()
-	}
+func (p *Process) Exit(reason error, timeout time.Duration) error {
+	slog.Debug("Process exiting: calling cleanup", "pid", p.pid)
+	return p.cleanup(&reason, timeout)
+}
+
+func (p *Process) Exited() bool {
+	return p.reason != nil
 }
 
 func (p *Process) ID() PID {
 	return p.pid
 }
 
-func (p *Process) Send(ctx context.Context, msg Msg) error {
-	return p.mailbox.Send(ctx, msg)
+func (p *Process) Send(msg Msg, timeout time.Duration) error {
+	return p.mailbox.Send(msg, timeout)
 }
 
-func (p *Process) SendAfter(ctx context.Context, msg Msg, after time.Duration) *time.Timer {
+func (p *Process) SendAfter(msg Msg, after time.Duration) *time.Timer {
 	return time.AfterFunc(after, func() {
-		_ = p.Send(ctx, msg)
+		_ = p.Send(msg, 0)
 	})
 }
 
-func (p *Process) Receive(match func(Msg) bool, opts ...ReceiveOpt[Msg]) (Msg, bool) {
-	return p.mailbox.Receive(match, opts...)
-}
-
-type pidKey struct{}
-
-type linkedKey struct{}
-
-func CtxPID(ctx context.Context) (PID, bool) {
-	pid, ok := ctx.Value(pidKey{}).(PID)
-	return pid, ok
-}
-
-func CtxLinked(ctx context.Context) (PID, bool) {
-	pid, ok := ctx.Value(linkedKey{}).(PID)
-	return pid, ok
+func (p *Process) Reason() error {
+	if p.reason != nil {
+		return p.reason
+	}
+	return fmt.Errorf("process %s not exited", p.pid)
 }

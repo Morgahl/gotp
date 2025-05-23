@@ -1,25 +1,20 @@
 package gotp
 
 import (
-	"context"
-	"log"
+	"fmt"
+	"log/slog"
 	"sync/atomic"
+	"time"
 )
 
 var (
 	localID  uint64 = 0
 	serial   uint32 = 0
 	registry Registry[PID]
-	root     PID
 )
 
 func init() {
 	registry = *New[PID]()
-	root = nextPID()
-}
-
-func RootPID() PID {
-	return root
 }
 
 func nextPID() PID {
@@ -43,9 +38,26 @@ func register(p Registerable[PID]) func() {
 	}
 }
 
-func Send(ctx context.Context, pid PID, msg Msg) {
+func Send(pid PID, msg Msg, timeout time.Duration) error {
 	if proc, exists := registry.Get(pid); exists {
-		log.Printf("Send: %v -> %v", msg, pid)
-		proc.Send(ctx, msg)
+		slog.Debug("global.Send", slog.String("pid", pid.String()), slog.String("msg", fmt.Sprintf("%v", msg)))
+		return proc.Send(msg, timeout)
 	}
+	return NewUnknownPID(pid)
+}
+
+type UnknownPID struct {
+	pid PID
+}
+
+func NewUnknownPID(pid PID) *UnknownPID {
+	return &UnknownPID{pid: pid}
+}
+
+func (e *UnknownPID) Error() string {
+	return fmt.Sprintf("UnknownPID{%v}", e.pid)
+}
+
+func (e *UnknownPID) Is(target error) bool {
+	return target == e
 }

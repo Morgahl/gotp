@@ -1,12 +1,26 @@
 package supervisor
 
 import (
-	"context"
 	"fmt"
 	"time"
 
 	"github.com/Morgahl/gotp"
 )
+
+type Supervisable interface {
+	ID() gotp.PID
+	ChildSpec() ChildSpec
+	StartLink(gotp.PID, time.Duration, ...gotp.SpawnOpt) (Supervisable, error)
+	Send(gotp.Msg, time.Duration) error
+	Exit(error, time.Duration) error
+	Exited() bool
+}
+
+type Supervisor interface {
+	Supervisable
+	StartChild(Supervisable, time.Duration) error
+	StopChild(gotp.PID, time.Duration) error
+}
 
 type Options map[string]interface{}
 
@@ -56,11 +70,12 @@ type Flags struct {
 	AutoShutdown
 	MaxRestarts uint
 	ResetPeriod time.Duration
+	Shutdown    time.Duration
 	Strategy
 }
 
 func (f Flags) String() string {
-	return fmt.Sprintf("Flags{AutoShutdown: %s, MaxRestarts: %d, ResetPeriod: %s, Strategy: %s}", f.AutoShutdown, f.MaxRestarts, f.ResetPeriod, f.Strategy)
+	return fmt.Sprintf("Flags{AutoShutdown: %s, MaxRestarts: %d, ResetPeriod: %s, Shutdown: %s, Strategy: %s}", f.AutoShutdown, f.MaxRestarts, f.ResetPeriod, f.Shutdown, f.Strategy)
 }
 
 func (f Flags) ApplyDefaults() Flags {
@@ -69,6 +84,9 @@ func (f Flags) ApplyDefaults() Flags {
 	}
 	if f.ResetPeriod == 0 {
 		f.ResetPeriod = 5 * time.Second
+	}
+	if f.Shutdown == 0 {
+		f.Shutdown = 30 * time.Second
 	}
 	return f
 }
@@ -125,32 +143,12 @@ func (c ChildSpec) String() string {
 	return fmt.Sprintf("ChildSpec{Name: %s, Restart: %s, Shutdown: %s, Type: %s, Significant: %t}", c.Name, c.Restart, c.Shutdown, c.Type, c.Significant)
 }
 
-type Supervisable interface {
-	ID() gotp.PID
-	ChildSpec() ChildSpec
-	StartLink(context.Context, gotp.PID, ...gotp.SpawnOpt) (Supervisable, error)
-}
-
-type Supervisor interface {
-	Supervisable
-	StartChild(Supervisable) error
-	StopChild(gotp.PID) error
-}
-
 type child struct {
 	supervisable Supervisable
-	cancel       func()
 	restart      restart
 }
 
 type restart struct {
 	count uint
 	at    time.Time
-}
-
-func matchExit(msg gotp.Msg) bool {
-	if _, ok := msg.(gotp.Exit); ok {
-		return true
-	}
-	return false
 }

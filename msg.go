@@ -1,6 +1,9 @@
 package gotp
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 type Msg interface{}
 
@@ -20,10 +23,7 @@ func (e Exit) PID() PID {
 }
 
 func (e Exit) Error() string {
-	if e.reason != nil {
-		return fmt.Sprintf("%v exit: %v", e.pid, e.reason)
-	}
-	return fmt.Sprintf("%v exit", e.pid)
+	return fmt.Sprintf("Exit{%v, reason: %v}", e.pid, e.reason)
 }
 
 func (e Exit) Is(target error) bool {
@@ -40,18 +40,10 @@ type Timeout struct {
 	reason error
 }
 
-func NewTimeout(reason error) Timeout {
-	return Timeout{reason}
+func NewTimeout(dur time.Duration) Timeout {
+	return Timeout{reason: fmt.Errorf("timeout after %v", dur)}
 }
 
 func (t Timeout) Error() string {
-	return t.reason.Error()
-}
-
-func (t Timeout) Is(target error) bool {
-	return target == t.reason
-}
-
-func (t Timeout) Unwrap() error {
-	return t.reason
+	return fmt.Sprintf("Timeout{reason: %v}", t.reason)
 }

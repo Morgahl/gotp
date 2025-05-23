@@ -1,10 +1,9 @@
 package supervisor
 
 import (
-	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/Morgahl/gotp"
@@ -24,7 +23,6 @@ type DynamicSupervisor struct {
 	flags Flags
 
 	process  *gotp.Process
-	ctx      context.Context
 	children map[gotp.PID]child
 }
 
@@ -35,13 +33,15 @@ func Dynamic(flags Flags) *DynamicSupervisor {
 	}
 }
 
-func (s *DynamicSupervisor) StartLink(ctx context.Context, link gotp.PID, opts ...gotp.SpawnOpt) (Supervisable, error) {
-	log.Printf("DynamicSupervisor.StartLink: %v", link)
-	s.ctx = ctx
+func (s *DynamicSupervisor) StartLink(link gotp.PID, timeout time.Duration, opts ...gotp.SpawnOpt) (Supervisable, error) {
+	slog.Debug("DynamicSupervisor.StartLink", "link", link.String())
+	if timeout <= 0 {
+		timeout = gotp.DEFAULT_TIMEOUT
+	}
 	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case <-s.setupProc(link, opts...):
+	case <-time.After(timeout):
+		return nil, gotp.NewTimeout(timeout)
+	case <-s.setupProc(link, timeout, opts...):
 		return s, nil
 	}
 }
@@ -59,35 +59,41 @@ func (s *DynamicSupervisor) ChildSpec() ChildSpec {
 	}
 }
 
-func (s *DynamicSupervisor) StartChild(child Supervisable) error {
-	// TODO: send a message to the Supervisor process to start the child so that there is no need to
-	// TODO: use a mutex to protect the maps
+func (s *DynamicSupervisor) StartChild(child Supervisable, timeout time.Duration) error {
+	return s.Send(startChild{child}, timeout)
+}
+
+func (s *DynamicSupervisor) StopChild(pid gotp.PID, timeout time.Duration) error {
+	return s.Send(stopChild{pid}, timeout)
+}
+
+func (s *DynamicSupervisor) Exit(reason error, timeout time.Duration) error {
+	slog.Error("DynamicSupervisor.Exit", "reason", reason)
+	return s.process.Send(gotp.NewExit(s.ID(), reason), timeout)
+}
+
+func (s *DynamicSupervisor) Exited() bool {
+	slog.Debug("DynamicSupervisor.Exited")
+	return s.process.Exited()
+}
+
+func (s *DynamicSupervisor) Send(msg gotp.Msg, timeout time.Duration) error {
 	if s.process == nil {
 		return errors.New("DynamicSupervisor not started")
 	}
-	return s.startChild(s.ctx, child)
+	return s.process.Send(msg, timeout)
 }
 
-func (s *DynamicSupervisor) StopChild(pid gotp.PID) error {
-	// TODO: send a message to the Supervisor process to stop the child so that there is no need to
-	// TODO: use a mutex to protect the maps
-	if s.process == nil {
-		return errors.New("DynamicSupervisor not started")
-	}
-	s.stopChild(pid)
-	return nil
-}
-
-func (s *DynamicSupervisor) setupProc(link gotp.PID, opts ...gotp.SpawnOpt) <-chan struct{} {
+func (s *DynamicSupervisor) setupProc(link gotp.PID, timeout time.Duration, opts ...gotp.SpawnOpt) <-chan struct{} {
 	sig := make(chan struct{})
-	s.process = gotp.SpawnLink(s.ctx, link, s.loop(sig), opts...)
+	s.process = gotp.SpawnLink(link, s.loop(sig), timeout, opts...)
 	return sig
 }
 
-func (s *DynamicSupervisor) startChild(ctx context.Context, child Supervisable) (reason error) {
+func (s *DynamicSupervisor) startChild(child Supervisable, timeout time.Duration) (reason error) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("DynamicSupervisor.startChild: panic: %v", r)
+			slog.Error("DynamicSupervisor.startChild: panic", "error", r)
 			if reason == nil {
 				reason = fmt.Errorf("panic: %v", r)
 			} else {
@@ -96,39 +102,33 @@ func (s *DynamicSupervisor) startChild(ctx context.Context, child Supervisable) 
 		}
 	}()
 	spec := child.ChildSpec()
-	ctx, cancel := context.WithCancel(ctx)
-	child, err := child.StartLink(ctx, s.process.ID(), spec.SpawnOpts...)
+	child, err := child.StartLink(s.process.ID(), timeout, spec.SpawnOpts...)
 	if err != nil {
-		cancel()
 		return err
 	}
-	s.registerChild(child, cancel)
+	s.registerChild(child)
 	return nil
 }
 
-func (s *DynamicSupervisor) stopChild(pid gotp.PID) {
+func (s *DynamicSupervisor) stopChild(pid gotp.PID, timeout time.Duration) {
 	if child, exists := s.children[pid]; exists {
-		child.cancel()
-		delete(s.children, pid)
+		child.supervisable.Send(gotp.NewExit(pid, nil), timeout)
 	}
 }
 
-func (s *DynamicSupervisor) registerChild(supervisable Supervisable, cancel func()) {
-	s.children[supervisable.ID()] = child{
-		supervisable: supervisable,
-		cancel:       cancel,
-		restart:      restart{},
-	}
+func (s *DynamicSupervisor) registerChild(supervisable Supervisable) {
+	s.children[supervisable.ID()] = child{supervisable: supervisable}
 }
 
 func (s *DynamicSupervisor) deregisterChild(pid gotp.PID) {
-	if child, ok := s.children[pid]; ok {
-		child.cancel()
-		delete(s.children, pid)
-	}
+	delete(s.children, pid)
 }
 
 func (s *DynamicSupervisor) shouldRestart(pid gotp.PID) (restart bool) {
+	if s.process.ID() == pid {
+		return false
+	}
+
 	cs, ok := s.children[pid]
 	if !ok {
 		return true
@@ -156,21 +156,49 @@ func (s *DynamicSupervisor) shouldRestart(pid gotp.PID) (restart bool) {
 	return restart
 }
 
-func (s *DynamicSupervisor) loop(sig chan struct{}) func(context.Context, *gotp.Process) error {
-	return func(ctx context.Context, p *gotp.Process) (reason error) {
+func (s *DynamicSupervisor) shouldExit(pid gotp.PID) (exit bool) {
+	return s.process.ID() == pid
+}
+
+func (s *DynamicSupervisor) loop(sig chan struct{}) gotp.RunFn {
+	return func(_ *gotp.Process, in <-chan gotp.Msg) (reason error) {
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf("DynamicSupervisor.loop: panic: %v", r)
 				if reason == nil {
 					reason = fmt.Errorf("panic: %v", r)
 				} else {
 					reason = fmt.Errorf("reason: %w, panic: %v", reason, r)
 				}
 			}
-			for _, cs := range s.children {
-				cs.cancel()
+			if len(s.children) > 0 {
+				slog.Debug("DynamicSupervisor.loop: sending exits to children")
+				timeout := time.After(s.flags.Shutdown)
+			shutdown:
+				for pid := range s.children {
+					gotp.Send(pid, gotp.NewExit(pid, reason), 0)
+
+					select {
+					case msg := <-in:
+						slog.Debug("DynamicSupervisor.loop: received message", "msg", msg)
+						if msg, ok := msg.(gotp.Exit); ok {
+							if msg.PID() == s.process.ID() {
+								continue
+							}
+							slog.Debug("DynamicSupervisor.loop: received exit", "msg", msg)
+							s.deregisterChild(msg.PID())
+						}
+
+					case <-timeout:
+						slog.Debug("DynamicSupervisor.loop: timeout waiting for children to exit")
+						break shutdown
+					}
+				}
 			}
-			s.process.Exit(ctx, reason)
+			slog.Debug("DynamicSupervisor.loop: exiting")
+			if err := s.process.Exit(reason, 0); err != nil {
+				slog.Error("DynamicSupervisor.loop: failed to exit process", "error", err)
+			}
+			slog.Debug("DynamicSupervisor.loop: exited")
 		}()
 
 		close(sig)
@@ -191,12 +219,38 @@ func (s *DynamicSupervisor) loop(sig chan struct{}) func(context.Context, *gotp.
 			}
 
 			select {
-			case <-ctx.Done():
-				log.Printf("DynamicSupervisor.loop: context done")
-				return ctx.Err()
+
+			case msg, ok := <-in:
+				if !ok {
+					slog.Debug("DynamicSupervisor.loop: input channel closed")
+					return nil
+				}
+				slog.Debug("DynamicSupervisor.loop: received message", "msg", msg)
+				switch msg := msg.(type) {
+				case gotp.Exit:
+					s.deregisterChild(msg.PID())
+					if s.shouldRestart(msg.PID()) {
+						if err := s.startChild(s.children[msg.PID()].supervisable, 0); err != nil {
+							slog.Error("DynamicSupervisor.loop: failed to restart child", "error", err)
+							hasFailed = true
+						}
+					} else if s.shouldExit(msg.PID()) {
+						slog.Debug("DynamicSupervisor.loop: being told to exit")
+						return msg.Unwrap()
+					}
+
+				case startChild:
+					if err := s.startChild(msg.child, 0); err != nil {
+						slog.Error("DynamicSupervisor.loop: failed to start child", "error", err)
+						hasFailed = true
+					}
+
+				case stopChild:
+					s.stopChild(msg.pid, 0)
+				}
 
 			case <-ticker.C:
-				log.Printf("DynamicSupervisor.loop: checking children")
+				slog.Debug("DynamicSupervisor.loop: checking children")
 				if !hasFailed {
 					continue
 				}
@@ -205,60 +259,15 @@ func (s *DynamicSupervisor) loop(sig chan struct{}) func(context.Context, *gotp.
 				for pid := range s.children {
 					if _, exists := s.children[pid]; !exists {
 						if s.shouldRestart(pid) {
-							if err := s.startChild(ctx, s.children[pid].supervisable); err != nil {
-								log.Printf("DynamicSupervisor.loop: failed to restart child: %v", err)
+							if err := s.startChild(s.children[pid].supervisable, 0); err != nil {
+								slog.Error("DynamicSupervisor.loop: failed to restart child", "error", err)
 								newFailed = true
 							}
 						}
 					}
 				}
 				hasFailed = newFailed
-
-			default:
-				if msg, ok := p.Receive(matchExit); ok {
-					msg := msg.(gotp.Exit)
-					log.Printf("DynamicSupervisor.loop: received exit: %v", msg)
-					s.deregisterChild(msg.PID())
-					if s.shouldRestart(msg.PID()) {
-						if err := s.startChild(ctx, s.children[msg.PID()].supervisable); err != nil {
-							log.Printf("DynamicSupervisor.loop: failed to restart child: %v", err)
-							hasFailed = true
-						}
-					}
-				} else if msg, ok := p.Receive(matchStartChild); ok {
-					msg := msg.(startChild)
-					log.Printf("DynamicSupervisor.loop: received start child: %v", msg)
-					if err := s.startChild(ctx, msg.child); err != nil {
-						log.Printf("DynamicSupervisor.loop: failed to start child: %v", err)
-						hasFailed = true
-					}
-				} else if msg, ok := p.Receive(matchStopChild); ok {
-					msg := msg.(stopChild)
-					log.Printf("DynamicSupervisor.loop: received stop child: %v", msg)
-					s.stopChild(msg.pid)
-				} else if ctx.Err() != nil {
-					log.Printf("DynamicSupervisor.loop: context done")
-					return ctx.Err()
-				} else {
-					log.Printf("DynamicSupervisor.loop: no message")
-					// no message received, continue the loop
-					continue
-				}
 			}
 		}
 	}
-}
-
-func matchStartChild(msg gotp.Msg) bool {
-	if _, ok := msg.(startChild); ok {
-		return true
-	}
-	return false
-}
-
-func matchStopChild(msg gotp.Msg) bool {
-	if _, ok := msg.(stopChild); ok {
-		return true
-	}
-	return false
 }

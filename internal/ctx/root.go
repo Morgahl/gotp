@@ -3,7 +3,7 @@ package ctx
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -21,17 +21,18 @@ type Context struct {
 	cancel context.CancelCauseFunc
 }
 
-func NewRoot(ctx context.Context) *Context {
+func Root(ctx context.Context) *Context {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	ctx, cancel := context.WithCancelCause(ctx)
 	go func(ctx context.Context, cancel context.CancelCauseFunc) {
 		select {
 		case <-ctx.Done():
-			log.Printf("root context done: %s", context.Cause(ctx))
+			slog.DebugContext(ctx, "root context done", "reason", context.Cause(ctx))
 			return
 		case s := <-sig:
-			cancel(fmt.Errorf("received signal: %s", s))
+			slog.InfoContext(ctx, "signal received", "signal", s)
+			cancel(fmt.Errorf("signal: %s", s))
 		}
 	}(ctx, cancel)
 	return &Context{ctx, cancel}

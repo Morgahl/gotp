@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"log"
+	"log/slog"
 	"net/netip"
 	"os"
 	"strconv"
@@ -77,7 +78,7 @@ func init() {
 		var addr netip.AddrPort
 		addr, err := netip.ParseAddrPort(add)
 		if err != nil {
-			log.Printf("invalid address: %s", add)
+			slog.Error("invalid address", "address", add, "error", err)
 			panic("invalid address: " + err.Error())
 		}
 
@@ -102,7 +103,7 @@ func init() {
 }
 
 func main() {
-	ctx := ctx.NewRoot(context.Background())
+	ctx := ctx.Root(context.Background())
 	switch {
 	default:
 		flag.Usage()
@@ -124,7 +125,7 @@ func main() {
 				return
 			default:
 				if err := register(ctx); err != nil {
-					log.Println(err)
+					slog.Error("failed to register", "error", err)
 					time.Sleep(RECONNECT_INTERVAL)
 				}
 			}
@@ -139,7 +140,7 @@ func asDaemon(ctx ctx.Cancellable) {
 	}
 
 	<-ctx.Done()
-	log.Printf("shutting down: %s", context.Cause(ctx))
+	slog.Info("shutting down", "reason", context.Cause(ctx))
 }
 
 func names(ctx ctx.Cancellable) {
@@ -156,11 +157,11 @@ func names(ctx ctx.Cancellable) {
 		return
 	}
 	if result.Result.Error != nil {
-		log.Printf("failed to list names: %v", result.Result.Error)
+		slog.Error("failed to list names", "reason", result.Result.Error)
 		return
 	}
 	for _, node := range result.Result.OK {
-		log.Printf("%s", node)
+		slog.Info("node", "name", node)
 	}
 }
 
@@ -178,10 +179,10 @@ func kill(ctx ctx.Cancellable) {
 		return
 	}
 	if result.Result.Error != nil {
-		log.Printf("failed to kill: %v", result.Result.Error)
+		slog.Error("failed to kill", "reason", result.Result.Error)
 		return
 	}
-	log.Printf("killed")
+	slog.Info("killed")
 }
 
 func register(ctx ctx.Cancellable) (err error) {
@@ -193,7 +194,7 @@ func register(ctx ctx.Cancellable) (err error) {
 
 	node, err := gpmd.NodeFromString(*Regisiter)
 	if err != nil {
-		log.Printf("invalid node: %v", err)
+		slog.Error("invalid node", "error", err)
 		return
 	}
 
@@ -202,10 +203,10 @@ func register(ctx ctx.Cancellable) (err error) {
 		return
 	}
 	if result.Result.Error != nil {
-		log.Printf("failed to register: %v", result.Result.Error)
+		slog.Error("failed to register", "reason", result.Result.Error)
 		return
 	}
-	log.Printf("REGISTERED")
+	slog.Info("REGISTERED")
 
 	defer func() {
 		var result gpmd.ActionResult[gpmd.None]
@@ -213,10 +214,10 @@ func register(ctx ctx.Cancellable) (err error) {
 			return
 		}
 		if result.Result.Error != nil {
-			log.Printf("failed to unregister: %v", result.Result.Error)
+			slog.Error("failed to unregister", "reason", result.Result.Error)
 			return
 		}
-		log.Printf("UNREGISTERED")
+		slog.Info("UNREGISTERED")
 	}()
 
 	heartbeat := time.NewTicker(HEARTHBEAT_INTERVAL)
@@ -224,14 +225,14 @@ func register(ctx ctx.Cancellable) (err error) {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Printf("shutting down: %s", context.Cause(ctx))
+			slog.Info("shutting down", "reason", context.Cause(ctx))
 			return
 
 		case <-heartbeat.C:
 			if result, err = gpmd.Heartbeat(client, node); err != nil {
 				return
 			} else if result.Result.Error != nil {
-				log.Printf("failed to heartbeat: %v", result.Result.Error)
+				slog.Error("failed to heartbeat", "reason", result.Result.Error)
 				return
 			}
 		}
