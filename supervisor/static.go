@@ -153,8 +153,8 @@ func (s *StaticSupervisor) shouldRestart(pid gotp.PID) (restart bool) {
 	return restart
 }
 
-func (s *StaticSupervisor) loop(sig chan struct{}) func(context.Context, *gotp.Process, <-chan gotp.Msg) error {
-	return func(ctx context.Context, _ *gotp.Process, in <-chan gotp.Msg) (reason error) {
+func (s *StaticSupervisor) loop(sig chan struct{}) func(context.Context, *gotp.Process, *gotp.Mailbox[gotp.Msg]) error {
+	return func(ctx context.Context, _ *gotp.Process, in *gotp.Mailbox[gotp.Msg]) (reason error) {
 		defer func() {
 			if r := recover(); r != nil {
 				if reason == nil {
@@ -166,7 +166,7 @@ func (s *StaticSupervisor) loop(sig chan struct{}) func(context.Context, *gotp.P
 			for _, cancel := range s.childCancel {
 				cancel()
 			}
-			for msg := range in {
+			for msg := range in.Chan() {
 				if msg, ok := msg.(gotp.Exit); ok {
 					log.Printf("StaticSupervisor.loop: received exit: %v", msg)
 					s.deregisterChild(msg.PID())
@@ -206,7 +206,7 @@ func (s *StaticSupervisor) loop(sig chan struct{}) func(context.Context, *gotp.P
 				log.Printf("StaticSupervisor.loop: context done")
 				return ctx.Err()
 
-			case msg := <-in:
+			case msg := <-in.Chan():
 				log.Printf("StaticSupervisor.loop: received message: %v", msg)
 				switch msg := msg.(type) {
 

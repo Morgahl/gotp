@@ -73,7 +73,7 @@ func New[
 
 func (s *Server[Call, Resp, Cast, Info, Cont]) Start(ctx context.Context, opts ...gotp.SpawnOpt) *Server[Call, Resp, Cast, Info, Cont] {
 	log.Printf("Server.Start: %v", opts)
-	s.setupProc(ctx, gotp.UNLINKED, opts...)
+	s.setupProc(ctx, gotp.PIDZero(), opts...)
 	return s
 }
 
@@ -131,8 +131,8 @@ func (s *Server[Call, Resp, Cast, Info, Cont]) setupProc(ctx context.Context, li
 	return sig
 }
 
-func (s *Server[Call, Resp, Cast, Info, Cont]) loop(sig chan struct{}) func(context.Context, *gotp.Process, <-chan gotp.Msg) error {
-	return func(ctx context.Context, _ *gotp.Process, in <-chan gotp.Msg) (reason error) {
+func (s *Server[Call, Resp, Cast, Info, Cont]) loop(sig chan struct{}) func(context.Context, *gotp.Process, *gotp.Mailbox[gotp.Msg]) error {
+	return func(ctx context.Context, _ *gotp.Process, mb *gotp.Mailbox[gotp.Msg]) (reason error) {
 		var cont Continue[Cont]
 		defer func() {
 			if r := recover(); r != nil {
@@ -178,7 +178,7 @@ func (s *Server[Call, Resp, Cast, Info, Cont]) loop(sig chan struct{}) func(cont
 				// The context has been cancelled, we should stop processing messages and exit shutdown.
 				return
 
-			case msg, ok := <-in:
+			case msg, ok := <-mb.Chan():
 				log.Printf("Server.loop: received message: %T(%v)", msg, msg)
 				if !ok {
 					log.Printf("Server.loop: channel closed")

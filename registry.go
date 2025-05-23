@@ -5,6 +5,10 @@ import (
 	"sync"
 )
 
+const (
+	REGISTRY_DEFAULT_SIZE = 100
+)
+
 type Registerable[ID comparable] interface {
 	ID() ID
 	Send(context.Context, Msg) error
@@ -17,7 +21,7 @@ type Registry[ID comparable] struct {
 
 func New[ID comparable]() *Registry[ID] {
 	return &Registry[ID]{
-		procs: make(map[ID]Registerable[ID], 100),
+		procs: make(map[ID]Registerable[ID], REGISTRY_DEFAULT_SIZE),
 	}
 }
 

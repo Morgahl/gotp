@@ -6,17 +6,34 @@ import (
 	"sync/atomic"
 )
 
-func init() {
-	registry = *New[PID]()
-}
-
 var (
-	pidCounter uint64 = 1
-	registry   Registry[PID]
+	localID  uint64 = 0
+	serial   uint32 = 0
+	registry Registry[PID]
+	root     PID
 )
 
+func init() {
+	registry = *New[PID]()
+	root = nextPID()
+}
+
+func RootPID() PID {
+	return root
+}
+
 func nextPID() PID {
-	return PID(atomic.AddUint64(&pidCounter, 1))
+	id := atomic.AddUint64(&localID, 1)
+	if id > ID_MASK {
+		stepSerial()
+		id = 1
+	}
+	return newPID(0, id, uint8(atomic.LoadUint32(&serial)&SERIAL_MASK))
+}
+
+func stepSerial() {
+	atomic.AddUint32(&serial, 1)
+	atomic.StoreUint64(&localID, 0)
 }
 
 func register(p Registerable[PID]) func() {
