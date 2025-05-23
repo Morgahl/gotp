@@ -2,15 +2,14 @@ package gotp
 
 import (
 	"context"
-	"log"
 	"slices"
 	"sync"
 	"time"
 )
 
 const (
-	MAILBOX_SIZE = 100
-	UNLINKED     = 0
+	MAILBOX_SIZE    = 100
+	DEFAULT_TIMEOUT = 5 * time.Second
 )
 
 type MailboxWeak = Mailbox[Msg]
@@ -25,6 +24,15 @@ type receiveOpts[M any] struct {
 }
 
 func WithTimeout[M any](dur time.Duration, cb func() M) ReceiveOpt[M] {
+	if dur > 0 && cb == nil {
+		cb = func() M {
+			var zero M
+			return zero
+		}
+	} else if dur <= 0 && cb != nil {
+		panic("WithTimeout: callback function cannot be set without a timeout")
+	}
+
 	return func(r *receiveOpts[M]) {
 		r.timeout = dur
 		r.onTimeout = cb
@@ -50,11 +58,6 @@ func (m *Mailbox[M]) Cancel(err error) {
 	m.cancel(err)
 }
 
-func (m *Mailbox[M]) Chan() <-chan M {
-	log.Println("Mailbox.Chan used (DEPRECATED IN FAVOR OF RECEIVE)")
-	return m.ch
-}
-
 func (m *Mailbox[M]) Send(ctx context.Context, msg M) error {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -76,7 +79,9 @@ func (m *Mailbox[M]) Send(ctx context.Context, msg M) error {
 //	else if ctx.Err() != nil { ... } // safe fallback when all fails.
 func (m *Mailbox[M]) Receive(match func(M) bool, opts ...ReceiveOpt[M]) (M, bool) {
 	var zero M
-	var config receiveOpts[M]
+	config := receiveOpts[M]{
+		timeout: DEFAULT_TIMEOUT,
+	}
 	for _, opt := range opts {
 		opt(&config)
 	}
@@ -84,8 +89,8 @@ func (m *Mailbox[M]) Receive(match func(M) bool, opts ...ReceiveOpt[M]) (M, bool
 		select {
 		case <-m.Done():
 			return zero, false
-		default:
 
+		default:
 			if um := m.unhandled[idx]; match(um) {
 				m.unhandled = slices.Delete(m.unhandled, idx, idx+1)
 				return um, true
@@ -93,24 +98,43 @@ func (m *Mailbox[M]) Receive(match func(M) bool, opts ...ReceiveOpt[M]) (M, bool
 			idx++
 		}
 	}
-	timer := time.NewTimer(config.timeout)
-	defer timer.Stop()
-	for {
-		select {
-		case <-m.Done():
-			var zero M
-			return zero, false
-		case <-timer.C:
-			if config.onTimeout != nil {
-				return config.onTimeout(), true
+
+	if config.timeout <= 0 {
+		for {
+			select {
+			case <-m.Done():
+				var zero M
+				return zero, false
+
+			case msg := <-m.ch:
+				if match(msg) {
+					return msg, true
+				}
+				m.unhandled = append(m.unhandled, msg)
 			}
-			var zero M
-			return zero, false
-		case msg := <-m.ch:
-			if match(msg) {
-				return msg, true
+		}
+	} else {
+		timer := time.NewTimer(config.timeout)
+		defer timer.Stop()
+		for {
+			select {
+			case <-m.Done():
+				var zero M
+				return zero, false
+
+			case <-timer.C:
+				if config.onTimeout != nil {
+					return config.onTimeout(), true
+				}
+				var zero M
+				return zero, false
+
+			case msg := <-m.ch:
+				if match(msg) {
+					return msg, true
+				}
+				m.unhandled = append(m.unhandled, msg)
 			}
-			m.unhandled = append(m.unhandled, msg)
 		}
 	}
 }

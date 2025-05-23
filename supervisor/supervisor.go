@@ -136,3 +136,21 @@ type Supervisor interface {
 	StartChild(Supervisable) error
 	StopChild(gotp.PID) error
 }
+
+type child struct {
+	supervisable Supervisable
+	cancel       func()
+	restart      restart
+}
+
+type restart struct {
+	count uint
+	at    time.Time
+}
+
+func matchExit(msg gotp.Msg) bool {
+	if _, ok := msg.(gotp.Exit); ok {
+		return true
+	}
+	return false
+}

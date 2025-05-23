@@ -12,31 +12,21 @@ import (
 
 var _ Supervisor = &StaticSupervisor{}
 
-type restart struct {
-	count uint
-	at    time.Time
-}
-
 type StaticSupervisor struct {
-	flags    Flags
-	children []Supervisable
+	flags Flags
+	specs []Supervisable
 
-	process *gotp.Process
-	// TODO: merge same keyed maps
-	childPIDs   map[gotp.PID]Supervisable
-	childNames  map[string]gotp.PID
-	childCancel map[gotp.PID]context.CancelFunc
-	restarts    map[gotp.PID]restart
+	process    *gotp.Process
+	childNames map[string]gotp.PID
+	children   map[gotp.PID]child
 }
 
 func Static(flags Flags, children ...Supervisable) *StaticSupervisor {
 	return &StaticSupervisor{
-		flags:       flags.ApplyDefaults(),
-		children:    children,
-		childPIDs:   make(map[gotp.PID]Supervisable, len(children)),
-		childNames:  make(map[string]gotp.PID, len(children)),
-		childCancel: make(map[gotp.PID]context.CancelFunc, len(children)),
-		restarts:    make(map[gotp.PID]restart, len(children)),
+		flags:      flags.ApplyDefaults(),
+		specs:      children,
+		childNames: make(map[string]gotp.PID, len(children)),
+		children:   make(map[gotp.PID]child, len(children)),
 	}
 }
 
@@ -99,62 +89,63 @@ func (s *StaticSupervisor) startChild(ctx context.Context, child Supervisable) (
 	return nil
 }
 
-func (s *StaticSupervisor) registerChild(child Supervisable, cancel func()) {
-	pid := child.ID()
-	spec := child.ChildSpec()
-	s.childPIDs[pid] = child
-	if spec.Name != "" {
-		s.childNames[spec.Name] = pid
+func (s *StaticSupervisor) registerChild(supervisable Supervisable, cancel func()) {
+	pid := supervisable.ID()
+	cs := child{
+		supervisable: supervisable,
+		cancel:       cancel,
 	}
-	s.childCancel[pid] = cancel
-	s.restarts[pid] = restart{}
+	s.children[pid] = cs
+
+	if name := supervisable.ChildSpec().Name; name != "" {
+		s.childNames[name] = pid
+	}
 }
 
 func (s *StaticSupervisor) deregisterChild(pid gotp.PID) {
-	if child, ok := s.childPIDs[pid]; ok {
-		spec := child.ChildSpec()
-		if cancel, ok := s.childCancel[pid]; ok {
-			cancel()
-			delete(s.childCancel, pid)
+	if child, ok := s.children[pid]; ok {
+		spec := child.supervisable.ChildSpec()
+		if child.cancel != nil {
+			child.cancel()
+			child.cancel = nil
 		}
 		if spec.Name != "" {
 			delete(s.childNames, spec.Name)
 		}
-		delete(s.childPIDs, pid)
-		delete(s.restarts, pid)
 	}
 }
 
 func (s *StaticSupervisor) shouldRestart(pid gotp.PID) (restart bool) {
-	r, ok := s.restarts[pid]
+	cs, ok := s.children[pid]
 	if !ok {
 		return true
 	}
 
-	r.count++
+	cs.restart.count++
 
-	if r.count == 1 {
-		r.at = time.Now()
+	if cs.restart.count == 1 {
+		cs.restart.at = time.Now()
 		restart = true
-	} else if r.count <= s.flags.MaxRestarts {
+	} else if cs.restart.count <= s.flags.MaxRestarts {
 		restart = true
-	} else if time.Since(r.at) > s.flags.ResetPeriod {
-		r.count = 1
-		r.at = time.Now()
+	} else if time.Since(cs.restart.at) > s.flags.ResetPeriod {
+		cs.restart.count = 1
+		cs.restart.at = time.Now()
 		restart = true
 	} else {
 		restart = false
 	}
 
 	if restart {
-		s.restarts[pid] = r
+		s.children[pid] = cs
 	}
 
 	return restart
 }
 
-func (s *StaticSupervisor) loop(sig chan struct{}) func(context.Context, *gotp.Process, *gotp.Mailbox[gotp.Msg]) error {
-	return func(ctx context.Context, _ *gotp.Process, in *gotp.Mailbox[gotp.Msg]) (reason error) {
+// We reimplement the loop function using Mailbox.Receive(match, ...) Mailbox.Chan no longer exists and should not be used.
+func (s *StaticSupervisor) loop(sig chan struct{}) gotp.RunFn {
+	return func(ctx context.Context, p *gotp.Process) (reason error) {
 		defer func() {
 			if r := recover(); r != nil {
 				if reason == nil {
@@ -163,10 +154,15 @@ func (s *StaticSupervisor) loop(sig chan struct{}) func(context.Context, *gotp.P
 					reason = fmt.Errorf("reason: %w, panic: %v", reason, r)
 				}
 			}
-			for _, cancel := range s.childCancel {
-				cancel()
+			for _, cs := range s.children {
+				if cs.cancel != nil {
+					cs.cancel()
+					cs.cancel = nil
+				}
 			}
-			for msg := range in.Chan() {
+			var msg gotp.Msg
+			var ok bool
+			for msg, ok = p.Receive(matchExit); ok; msg, ok = p.Receive(matchExit) {
 				if msg, ok := msg.(gotp.Exit); ok {
 					log.Printf("StaticSupervisor.loop: received exit: %v", msg)
 					s.deregisterChild(msg.PID())
@@ -177,7 +173,7 @@ func (s *StaticSupervisor) loop(sig chan struct{}) func(context.Context, *gotp.P
 
 		log.Printf("StaticSupervisor.loop: starting children")
 
-		for _, child := range s.children {
+		for _, child := range s.specs {
 			if err := s.startChild(ctx, child); err != nil {
 				return err
 			}
@@ -186,13 +182,11 @@ func (s *StaticSupervisor) loop(sig chan struct{}) func(context.Context, *gotp.P
 		log.Printf("StaticSupervisor.loop: children started")
 
 		close(sig)
-
 		var hasFailed bool
 		var tickerRunning bool
 		ticker := time.NewTicker(100 * time.Millisecond)
 		ticker.Stop()
 		defer ticker.Stop()
-
 		for {
 			if hasFailed && !tickerRunning {
 				tickerRunning = true
@@ -206,20 +200,6 @@ func (s *StaticSupervisor) loop(sig chan struct{}) func(context.Context, *gotp.P
 				log.Printf("StaticSupervisor.loop: context done")
 				return ctx.Err()
 
-			case msg := <-in.Chan():
-				log.Printf("StaticSupervisor.loop: received message: %v", msg)
-				switch msg := msg.(type) {
-
-				case gotp.Exit:
-					s.deregisterChild(msg.PID())
-					if s.shouldRestart(msg.PID()) {
-						if err := s.startChild(ctx, s.childPIDs[msg.PID()]); err != nil {
-							log.Printf("DynamicSupervisor.loop: failed to restart child: %v", err)
-							hasFailed = true
-						}
-					}
-				}
-
 			case <-ticker.C:
 				log.Printf("StaticSupervisor.loop: checking children")
 				if !hasFailed {
@@ -227,17 +207,32 @@ func (s *StaticSupervisor) loop(sig chan struct{}) func(context.Context, *gotp.P
 				}
 
 				var newFailed bool
-				for pid := range s.childPIDs {
-					if _, exists := s.childCancel[pid]; !exists {
+				for pid := range s.children {
+					if _, exists := s.children[pid]; !exists {
 						if s.shouldRestart(pid) {
-							if err := s.startChild(ctx, s.childPIDs[pid]); err != nil {
-								log.Printf("DynamicSupervisor.loop: failed to restart child: %v", err)
+							if err := s.startChild(ctx, s.children[pid].supervisable); err != nil {
+								log.Printf("StaticSupervisor.loop: failed to restart child: %v", err)
 								newFailed = true
 							}
 						}
 					}
 				}
 				hasFailed = newFailed
+
+			default:
+				if msg, ok := p.Receive(matchExit); ok {
+					log.Printf("StaticSupervisor.loop: received message: %T(%v)", msg, msg)
+					switch msg := msg.(type) {
+					case gotp.Exit:
+						s.deregisterChild(msg.PID())
+						if s.shouldRestart(msg.PID()) {
+							if err := s.startChild(ctx, s.children[msg.PID()].supervisable); err != nil {
+								log.Printf("StaticSupervisor.loop: failed to restart child: %v", err)
+								hasFailed = true
+							}
+						}
+					}
+				}
 			}
 		}
 	}

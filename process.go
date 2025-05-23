@@ -8,7 +8,7 @@ import (
 
 type SpawnOpt func(*Process)
 
-type RunFn func(ctx context.Context, proc *Process, mailbox *Mailbox[Msg]) error
+type RunFn func(ctx context.Context, proc *Process) error
 
 type Process struct {
 	pid    PID
@@ -48,7 +48,7 @@ func build(link PID, opts []SpawnOpt) *Process {
 }
 
 func (p *Process) setupContext(ctx context.Context) context.Context {
-	if p.linked.raw != UNLINKED {
+	if !p.linked.IsZero() {
 		ctx = context.WithValue(ctx, linkedKey{}, p.linked)
 	}
 	ctx = context.WithValue(ctx, pidKey{}, p.pid)
@@ -58,7 +58,7 @@ func (p *Process) setupContext(ctx context.Context) context.Context {
 func (p *Process) run(ctx context.Context, fn RunFn) {
 	var reason error
 	defer p.cleanup(ctx, &reason)
-	reason = fn(ctx, p, &p.mailbox)
+	reason = fn(ctx, p)
 }
 
 func (p *Process) cleanup(ctx context.Context, reason *error) {
@@ -78,7 +78,7 @@ func (p *Process) cleanup(ctx context.Context, reason *error) {
 	defer p.mailbox.mu.Unlock()
 	defer p.deregHandle()
 	p.mailbox.Cancel(p.reason)
-	if p.linked.raw != UNLINKED {
+	if !p.linked.IsZero() {
 		Send(ctx, p.linked, NewExit(p.pid, p.reason))
 	}
 }
@@ -105,6 +105,10 @@ func (p *Process) SendAfter(ctx context.Context, msg Msg, after time.Duration) *
 	return time.AfterFunc(after, func() {
 		_ = p.Send(ctx, msg)
 	})
+}
+
+func (p *Process) Receive(match func(Msg) bool, opts ...ReceiveOpt[Msg]) (Msg, bool) {
+	return p.mailbox.Receive(match, opts...)
 }
 
 type pidKey struct{}

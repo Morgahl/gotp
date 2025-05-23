@@ -131,8 +131,9 @@ func (s *Server[Call, Resp, Cast, Info, Cont]) setupProc(ctx context.Context, li
 	return sig
 }
 
-func (s *Server[Call, Resp, Cast, Info, Cont]) loop(sig chan struct{}) func(context.Context, *gotp.Process, *gotp.Mailbox[gotp.Msg]) error {
-	return func(ctx context.Context, _ *gotp.Process, mb *gotp.Mailbox[gotp.Msg]) (reason error) {
+// We reimplement the loop function using Mailbox.Receive(match, ...) Mailbox.Chan no longer exists and should not be used.
+func (s *Server[Call, Resp, Cast, Info, Cont]) loop(sig chan struct{}) gotp.RunFn {
+	return func(ctx context.Context, p *gotp.Process) (reason error) {
 		var cont Continue[Cont]
 		defer func() {
 			if r := recover(); r != nil {
@@ -170,27 +171,12 @@ func (s *Server[Call, Resp, Cast, Info, Cont]) loop(sig chan struct{}) func(cont
 					cont, reason = s.server.HandleContinue(cont.arg)
 					continue
 				}
-			}
 
-			select {
-			case <-ctx.Done():
-				log.Printf("Server.loop: context done")
-				// The context has been cancelled, we should stop processing messages and exit shutdown.
-				return
-
-			case msg, ok := <-mb.Chan():
-				log.Printf("Server.loop: received message: %T(%v)", msg, msg)
-				if !ok {
-					log.Printf("Server.loop: channel closed")
-					// The channel has been closed, we should stop processing messages and exit normal
-					return
-				}
-
-				switch msg := msg.(type) {
-				case callMsg[Call, Resp]:
-					log.Printf("Server.loop: call")
+				if msg, ok := p.Receive(matchCall[Call, Resp]); ok {
 					// We have a synchronous call and a chan to close after conditionally sending a
 					// response back to the caller.
+					log.Printf("Server.loop: call")
+					msg := msg.(callMsg[Call, Resp])
 					var resp Response[Resp]
 					switch resp, cont, reason = s.server.HandleCall(msg.req, msg.from); resp.atom {
 					case NO_REPLY:
@@ -203,31 +189,70 @@ func (s *Server[Call, Resp, Cast, Info, Cont]) loop(sig chan struct{}) func(cont
 						msg.resp <- resp.resp
 						close(msg.resp)
 					}
-
-				case castMsg[Cast]:
-					log.Printf("Server.loop: cast")
+				} else if msg, ok := p.Receive(matchCast[Cast]); ok {
 					// We have an asynchronous call
+					log.Printf("Server.loop: cast")
+					msg := msg.(castMsg[Cast])
 					cont, reason = s.server.HandleCast(msg.cast)
-
-				case infoMsg[Info]:
-					log.Printf("Server.loop: info")
+				} else if msg, ok := p.Receive(matchInfo[Info]); ok {
 					// We have an Info message
+					log.Printf("Server.loop: info")
+					msg := msg.(infoMsg[Info])
 					cont, reason = s.server.HandleInfo(msg.info)
-
-				case gotp.Exit:
-					log.Printf("Server.loop: exit")
+				} else if msg, ok := p.Receive(matchExit); ok {
 					// We have an Exit message
+					log.Printf("Server.loop: exit")
+					msg := msg.(gotp.Exit)
 					if msg.PID() == s.process.ID() {
 						// We have been asked to terminate
 						return msg.Unwrap()
 					}
-
-				default:
-					log.Printf("Server.loop: default")
+				} else if msg, ok := p.Receive(matchAny); ok {
 					// We have an Info or some other message that we don't know how to handle.
+					log.Printf("Server.loop: default")
 					cont, reason = s.server.HandleAny(msg)
+				} else if ctx.Err() != nil {
+					log.Printf("Server.loop: context done")
+					// The context has been cancelled, we should stop processing messages and exit normally.
+					return ctx.Err()
+				} else {
+					log.Printf("Server.loop: no message")
+					// No message received, continue the loop.
+					continue
 				}
 			}
 		}
 	}
+}
+
+func matchCall[Call gotp.Msg, Resp gotp.Msg](msg gotp.Msg) bool {
+	if _, ok := msg.(callMsg[Call, Resp]); ok {
+		return true
+	}
+	return false
+}
+
+func matchCast[Cast gotp.Msg](msg gotp.Msg) bool {
+	if _, ok := msg.(castMsg[Cast]); ok {
+		return true
+	}
+	return false
+}
+
+func matchInfo[Info gotp.Msg](msg gotp.Msg) bool {
+	if _, ok := msg.(infoMsg[Info]); ok {
+		return true
+	}
+	return false
+}
+
+func matchExit(msg gotp.Msg) bool {
+	if _, ok := msg.(gotp.Exit); ok {
+		return true
+	}
+	return false
+}
+
+func matchAny(msg gotp.Msg) bool {
+	return true
 }
