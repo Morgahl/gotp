@@ -7,22 +7,11 @@ import (
 	"github.com/Morgahl/gotp"
 )
 
-type Supervisable interface {
-	ID() gotp.PID
-	ChildSpec() ChildSpec
-	StartLink(gotp.PID, time.Duration, ...gotp.SpawnOpt) (Supervisable, error)
-	Send(gotp.Msg, time.Duration) error
-	Exit(error, time.Duration) error
-	Exited() bool
-}
-
 type Supervisor interface {
-	Supervisable
-	StartChild(Supervisable, time.Duration) error
+	gotp.Supervisable
+	StartChild(gotp.Supervisable, time.Duration) error
 	StopChild(gotp.PID, time.Duration) error
 }
-
-type Options map[string]interface{}
 
 type Strategy uint8
 
@@ -91,60 +80,21 @@ func (f Flags) ApplyDefaults() Flags {
 	return f
 }
 
-type Restart uint8
+func StartChild(s Supervisor, child gotp.Supervisable, timeout time.Duration) error {
+	return s.StartChild(child, timeout)
+}
 
-const (
-	PERMANENT Restart = iota
-	TRANSIENT
-	TEMPORARY
-)
-
-func (r Restart) String() string {
-	switch r {
-	case PERMANENT:
-		return "PERMANENT"
-	case TRANSIENT:
-		return "TRANSIENT"
-	case TEMPORARY:
-		return "TEMPORARY"
-	default:
-		return fmt.Sprintf("Restart(%v)", uint8(r))
+func StopChild(s Supervisor, pid gotp.PID, timeout time.Duration) error {
+	if pid == gotp.PIDZero() {
+		// better error
+		return fmt.Errorf("cannot stop child with zero PID")
 	}
-}
-
-type Type uint8
-
-const (
-	WORKER Type = iota
-	SUPERVISOR
-)
-
-func (t Type) String() string {
-	switch t {
-	case WORKER:
-		return "WORKER"
-	case SUPERVISOR:
-		return "SUPERVISOR"
-	default:
-		return fmt.Sprintf("Type(%v)", uint8(t))
-	}
-}
-
-type ChildSpec struct {
-	Name string
-	Restart
-	Shutdown time.Duration
-	Type
-	Significant bool
-	SpawnOpts   []gotp.SpawnOpt
-}
-
-func (c ChildSpec) String() string {
-	return fmt.Sprintf("ChildSpec{Name: %s, Restart: %s, Shutdown: %s, Type: %s, Significant: %t}", c.Name, c.Restart, c.Shutdown, c.Type, c.Significant)
+	return s.StopChild(pid, timeout)
 }
 
 type child struct {
-	supervisable Supervisable
+	supervisable gotp.Supervisable
+	running      gotp.Running
 	restart      restart
 }
 

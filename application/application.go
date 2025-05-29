@@ -4,8 +4,23 @@ import (
 	"fmt"
 
 	"github.com/Morgahl/gotp"
-	"github.com/Morgahl/gotp/supervisor"
 )
+
+type Application interface {
+	Name() string
+	Version() Version
+	Start(StartType) (gotp.Supervisable, error)
+}
+
+type PrepareStop interface {
+	Application
+	PrepareStop() error
+}
+
+type Stop interface {
+	Application
+	Stop() error
+}
 
 type startType uint8
 
@@ -61,20 +76,4 @@ func (st StartType) IsFailover() (node gotp.Node, ok bool) {
 		return st.node, true
 	}
 	return
-}
-
-type Application interface {
-	Name() string
-	Version() Version
-	Start(StartType) (supervisor.Supervisable, error)
-}
-
-type PrepareStop interface {
-	Application
-	PrepareStop() error
-}
-
-type Stop interface {
-	Application
-	Stop() error
 }

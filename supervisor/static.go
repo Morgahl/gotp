@@ -1,93 +1,216 @@
 package supervisor
 
 import (
-	"errors"
 	"fmt"
 	"log/slog"
 	"time"
 
 	"github.com/Morgahl/gotp"
+	"github.com/Morgahl/gotp/server"
 )
 
-var _ Supervisor = &StaticSupervisor{}
-
 type StaticSupervisor struct {
-	flags Flags
-	specs []Supervisable
-
-	process    *gotp.Process
+	flags      Flags
+	specs      []gotp.Supervisable
 	childNames map[string]gotp.PID
 	children   map[gotp.PID]child
+	server     *server.Server[gotp.Msg, gotp.Msg, gotp.Msg, gotp.Msg, any]
 }
 
-func Static(flags Flags, children ...Supervisable) *StaticSupervisor {
-	return &StaticSupervisor{
+func Static(flags Flags, children ...gotp.Supervisable) *StaticSupervisor {
+	sup := &StaticSupervisor{
 		flags:      flags.ApplyDefaults(),
 		specs:      children,
 		childNames: make(map[string]gotp.PID, len(children)),
 		children:   make(map[gotp.PID]child, len(children)),
 	}
+	sup.server = server.New(sup)
+	return sup
 }
 
-func (s *StaticSupervisor) StartLink(link gotp.PID, timeout time.Duration, opts ...gotp.SpawnOpt) (Supervisable, error) {
-	slog.Debug("StaticSupervisor.StartLink", "link", link.String())
-	if timeout <= 0 {
-		timeout = gotp.DEFAULT_TIMEOUT
-	}
-	select {
-	case <-time.After(timeout):
-		return nil, gotp.NewTimeout(timeout)
-	case <-s.setupProc(link, timeout, opts...):
-		return s, nil
-	}
-}
-
-func (s *StaticSupervisor) ID() gotp.PID {
-	return s.process.ID()
-}
-
-func (s *StaticSupervisor) ChildSpec() ChildSpec {
-	return ChildSpec{
-		Restart:     PERMANENT,
+func (s *StaticSupervisor) ChildSpec() gotp.ChildSpec {
+	return gotp.ChildSpec{
+		Restart:     gotp.PERMANENT,
 		Shutdown:    30 * time.Second,
-		Type:        SUPERVISOR,
+		Type:        gotp.SUPERVISOR,
 		Significant: true,
 	}
 }
 
-func (s *StaticSupervisor) StartChild(child Supervisable, timeout time.Duration) error {
-	return errors.New("StaticSupervisor does not support dynamic child addition")
+func (s *StaticSupervisor) StartLink(link gotp.PID, timeout time.Duration, opts ...gotp.SpawnOpt) (gotp.Supervisable, error) {
+	slog.Debug("StaticSupervisor.StartLink: starting server", "link", link, "timeout", timeout, "opts", opts)
+	return s.server.StartLink(link, timeout, opts...)
 }
 
-func (s *StaticSupervisor) StopChild(pid gotp.PID, timeout time.Duration) error {
-	return errors.New("StaticSupervisor does not support dynamic child removal")
-}
-
-func (s *StaticSupervisor) Exit(reason error, timeout time.Duration) error {
-	slog.Error("StaticSupervisor.Exit", "reason", reason)
-	return s.process.Send(gotp.NewExit(s.ID(), reason), timeout)
-}
-
-func (s *StaticSupervisor) Exited() bool {
-	slog.Debug("StaticSupervisor.Exited")
-	return s.process.Exited()
+func (s *StaticSupervisor) PID() gotp.PID {
+	return s.server.PID()
 }
 
 func (s *StaticSupervisor) Send(msg gotp.Msg, timeout time.Duration) error {
-	slog.Debug("StaticSupervisor.Send", "msg", msg)
-	if s.process == nil {
-		return errors.New("StaticSupervisor process is not started")
+	return s.server.Send(msg, timeout)
+}
+
+func (s *StaticSupervisor) SendAfter(msg gotp.Msg, delay time.Duration) (*time.Timer, error) {
+	return s.server.SendAfter(msg, delay)
+}
+
+func (s *StaticSupervisor) Receive() <-chan gotp.Msg {
+	return s.server.Receive()
+}
+
+func (s *StaticSupervisor) Exit(reason error, timeout time.Duration) error {
+	return s.server.Exit(reason, timeout)
+}
+
+func (s *StaticSupervisor) Exited() bool {
+	return s.server.Exited()
+}
+
+func (s *StaticSupervisor) StartChild(child gotp.Supervisable, timeout time.Duration) error {
+	if child == nil {
+		return NewInvalidChild(child)
 	}
-	return s.process.Send(msg, timeout)
+	return s.server.Send(server.Call[any, any](startChild{child}, s.PID()), timeout)
 }
 
-func (s *StaticSupervisor) setupProc(link gotp.PID, timeout time.Duration, opts ...gotp.SpawnOpt) <-chan struct{} {
-	sig := make(chan struct{})
-	s.process = gotp.SpawnLink(link, s.loop(sig), timeout, opts...)
-	return sig
+func (s *StaticSupervisor) StopChild(pid gotp.PID, timeout time.Duration) error {
+	if pid == gotp.PIDZero() {
+		return nil
+	}
+	return s.server.Send(server.Call[any, any](stopChild{pid}, s.PID()), timeout)
 }
 
-func (s *StaticSupervisor) startChild(child Supervisable, timeout time.Duration) (reason error) {
+func (s *StaticSupervisor) Init(gotp.Options) (cont server.Continue[any], err error) {
+	slog.Debug("StaticSupervisor.Init: initializing supervisor", "flags", s.flags, "children", len(s.specs))
+	for _, child := range s.specs {
+		if child == nil {
+			slog.Error("StaticSupervisor.Init: child is nil, skipping")
+			continue
+		} else if running, err := s.startChild(child, 0); err != nil {
+			slog.Error("StaticSupervisor.Init: failed to start child", "error", err)
+			return server.NoCont[any](), err
+		} else {
+			slog.Debug("StaticSupervisor.Init: child started", "pid", running.PID())
+			s.registerChild(child, running)
+		}
+	}
+	return server.NoCont[any](), nil
+}
+
+func (s *StaticSupervisor) HandleCall(msg gotp.Msg, _ gotp.PID) (resp server.Response[gotp.Msg], cont server.Continue[any], err error) {
+	switch m := msg.(type) {
+	case startChild:
+		if pid, ok := s.findChild(m.child); ok {
+			slog.Debug("StaticSupervisor.HandleCall: child already started", "pid", pid)
+			return server.Reply[gotp.Msg](gotp.NewAlreadyStarted(pid)), server.NoCont[any](), nil
+		} else if running, err := s.startChild(m.child, 0); err != nil {
+			slog.Error("StaticSupervisor.HandleCall: failed to start child", "error", err)
+			return server.Reply[gotp.Msg](err), server.NoCont[any](), nil
+		} else {
+			slog.Debug("StaticSupervisor.HandleCall: child started", "pid", running.PID())
+			s.registerChild(m.child, running)
+			return server.Reply[gotp.Msg](running.PID()), server.NoCont[any](), nil
+		}
+
+	case stopChild:
+		if child, ok := s.findChildByPID(m.pid); !ok {
+			slog.Debug("StaticSupervisor.HandleCall: child not found", "pid", m.pid)
+			return server.Reply[gotp.Msg](false), server.NoCont[any](), nil
+		} else if err := child.running.Exit(gotp.Kill{}, 0); err != nil {
+			slog.Error("StaticSupervisor.HandleCall: failed to stop child", "pid", m.pid, "error", err)
+			return server.Reply[gotp.Msg](err), server.NoCont[any](), nil
+		} else {
+			slog.Debug("StaticSupervisor.HandleCall: child stopped", "pid", m.pid)
+			s.deregisterChild(m.pid)
+			return server.Reply[gotp.Msg](nil), server.NoCont[any](), nil
+		}
+	}
+
+	panic(fmt.Sprintf("StaticSupervisor.HandleCall: unknown message type %T", msg))
+}
+
+func (s *StaticSupervisor) HandleCast(msg gotp.Msg) (cont server.Continue[any], err error) {
+	return server.NoCont[any](), nil
+}
+
+func (s *StaticSupervisor) HandleContinue(arg any) (cont server.Continue[any], err error) {
+	return server.NoCont[any](), nil
+}
+
+func (s *StaticSupervisor) HandleInfo(info gotp.Msg) (cont server.Continue[any], err error) {
+	switch info := info.(type) {
+	case gotp.Exit:
+		if child, ok := s.findChildByPID(info.PID()); !ok {
+			slog.Debug("StaticSupervisor.HandleInfo: exit from unknown child", "pid", info.PID())
+			return server.NoCont[any](), nil
+		} else if !s.deregisterChild(info.PID()) {
+			slog.Debug("StaticSupervisor.HandleInfo: exit child not found", "pid", info.PID())
+			return server.NoCont[any](), nil
+		} else if !s.shouldRestart(info.PID()) {
+			slog.Debug("StaticSupervisor.HandleInfo: child should not be restarted", "pid", info.PID())
+			return server.NoCont[any](), nil
+		} else if err := s.StartChild(child.supervisable, 0); err != nil {
+			slog.Error("StaticSupervisor.HandleInfo: failed to restart child", "pid", info.PID(), "error", err)
+			// TODO: track this timer somewhere?
+			_, err = s.server.SendAfter(server.Call[any, any](startChild{child.supervisable}, s.PID()), s.flags.ResetPeriod)
+			return server.NoCont[any](), err
+		}
+		slog.Debug("StaticSupervisor.HandleInfo: child restarted", "pid", info.PID())
+		return server.NoCont[any](), nil
+
+	default:
+		slog.Debug("StaticSupervisor.HandleInfo: received info message", "msg", info)
+		return server.NoCont[any](), nil
+	}
+}
+
+func (s *StaticSupervisor) HandleAny(msg gotp.Msg) (cont server.Continue[any], err error) {
+	return server.NoCont[any](), nil
+}
+
+func (s *StaticSupervisor) Terminate(reason error) (newReson error) {
+	slog.Debug("StaticSupervisor.Terminate: terminating supervisor", "reason", reason)
+	timeout := time.After(s.flags.Shutdown)
+shutdown:
+	for pid, child := range s.children {
+		child.running.Send(gotp.NewExit(pid, reason), 0)
+		slog.Debug("StaticSupervisor.Terminate: sent exit to child", "pid", pid, "reason", reason)
+
+		select {
+		case msg := <-s.server.Receive():
+			if msg, ok := msg.(gotp.Exit); ok {
+				slog.Debug("StaticSupervisor.Terminate: received exit", "msg", msg)
+				s.deregisterChild(msg.PID())
+				continue
+			}
+			slog.Debug("StaticSupervisor.Terminate: received message", "msg", msg)
+		case <-timeout:
+			slog.Debug("StaticSupervisor.Terminate: timeout waiting for children to exit")
+			break shutdown
+		}
+	}
+	return reason
+}
+
+func (s *StaticSupervisor) findChild(child gotp.Supervisable) (gotp.PID, bool) {
+	if child == nil {
+		return gotp.PIDZero(), false
+	}
+	if pid, ok := s.childNames[child.ChildSpec().Name]; ok {
+		return pid, true
+	}
+	return gotp.PIDZero(), false
+}
+
+func (s *StaticSupervisor) findChildByPID(pid gotp.PID) (child child, ok bool) {
+	if pid == gotp.PIDZero() {
+		return child, false
+	}
+	child, ok = s.children[pid]
+	return child, ok
+}
+
+func (s *StaticSupervisor) startChild(child gotp.Supervisable, timeout time.Duration) (_ gotp.Running, reason error) {
 	defer func() {
 		if r := recover(); r != nil {
 			slog.Error("StaticSupervisor.startChild: panic", "error", r)
@@ -99,33 +222,31 @@ func (s *StaticSupervisor) startChild(child Supervisable, timeout time.Duration)
 		}
 	}()
 	spec := child.ChildSpec()
-	child, err := child.StartLink(s.process.ID(), timeout, spec.SpawnOpts...)
-	if err != nil {
-		return err
-	}
-	s.registerChild(child)
-	return nil
+	return child.StartLink(s.server.PID(), timeout, spec.SpawnOpts...)
 }
 
-func (s *StaticSupervisor) registerChild(supervisable Supervisable) {
-	pid := supervisable.ID()
-	s.children[pid] = child{supervisable: supervisable}
+func (s *StaticSupervisor) registerChild(supervisable gotp.Supervisable, running gotp.Running) {
+	pid := running.PID()
+	s.children[pid] = child{supervisable: supervisable, running: running}
 	if name := supervisable.ChildSpec().Name; name != "" {
 		s.childNames[name] = pid
 	}
 }
 
-func (s *StaticSupervisor) deregisterChild(pid gotp.PID) {
+func (s *StaticSupervisor) deregisterChild(pid gotp.PID) (deleted bool) {
 	if child, ok := s.children[pid]; ok {
-		spec := child.supervisable.ChildSpec()
-		if spec.Name != "" {
-			delete(s.childNames, spec.Name)
+		if name := child.supervisable.ChildSpec().Name; name != "" {
+			delete(s.childNames, name)
 		}
+		delete(s.children, pid)
+		deleted = true
+		slog.Debug("StaticSupervisor.deregisterChild: child deregistered", "pid", pid)
 	}
+	return deleted
 }
 
 func (s *StaticSupervisor) shouldRestart(pid gotp.PID) (restart bool) {
-	if s.process.ID() == pid {
+	if s.server.PID() == pid {
 		return false
 	}
 
@@ -154,123 +275,4 @@ func (s *StaticSupervisor) shouldRestart(pid gotp.PID) (restart bool) {
 	}
 
 	return restart
-}
-
-func (s *StaticSupervisor) shouldExit(pid gotp.PID) (exit bool) {
-	return s.process.ID() == pid
-}
-
-func (s *StaticSupervisor) loop(sig chan struct{}) gotp.RunFn {
-	return func(_ *gotp.Process, in <-chan gotp.Msg) (reason error) {
-		defer func() {
-			if r := recover(); r != nil {
-				if reason == nil {
-					reason = fmt.Errorf("panic: %v", r)
-				} else {
-					reason = fmt.Errorf("reason: %w, panic: %v", reason, r)
-				}
-			}
-			if len(s.children) > 0 {
-				slog.Debug("StaticSupervisor.loop: sending exits to children")
-				timeout := time.After(s.flags.Shutdown)
-			shutdown:
-				for pid := range s.children {
-					gotp.Send(pid, gotp.NewExit(pid, reason), 0)
-
-					select {
-					case msg := <-in:
-						if msg, ok := msg.(gotp.Exit); ok {
-							if msg.PID() == s.process.ID() {
-								continue
-							}
-							slog.Debug("StaticSupervisor.loop: received exit", "msg", msg)
-							s.deregisterChild(msg.PID())
-							continue
-						}
-						slog.Debug("StaticSupervisor.loop: received message", "msg", msg)
-
-					case <-timeout:
-						slog.Debug("StaticSupervisor.loop: timeout waiting for children to exit")
-						break shutdown
-					}
-				}
-			}
-			slog.Debug("StaticSupervisor.loop: exiting")
-			if err := s.process.Exit(reason, 0); err != nil {
-				slog.Error("StaticSupervisor.loop: failed to exit process", "error", err)
-			}
-			slog.Debug("StaticSupervisor.loop: exited")
-		}()
-
-		slog.Debug("StaticSupervisor.loop: starting children")
-
-		for _, child := range s.specs {
-			if err := s.startChild(child, 0); err != nil {
-				return err
-			}
-		}
-
-		slog.Debug("StaticSupervisor.loop: children started")
-
-		close(sig)
-
-		var hasFailed bool
-		var tickerRunning bool
-		ticker := time.NewTicker(100 * time.Millisecond)
-		ticker.Stop()
-		defer ticker.Stop()
-
-		for {
-			if hasFailed && !tickerRunning {
-				tickerRunning = true
-				ticker.Reset(100 * time.Millisecond)
-			} else if !hasFailed && tickerRunning {
-				tickerRunning = false
-				ticker.Stop()
-			}
-			select {
-
-			case msg, ok := <-in:
-				if !ok {
-					slog.Debug("StaticSupervisor.loop: input channel closed")
-					return nil
-				}
-
-				slog.Debug("StaticSupervisor.loop: received message", "msg", msg)
-				switch msg := msg.(type) {
-
-				case gotp.Exit:
-					s.deregisterChild(msg.PID())
-					if s.shouldRestart(msg.PID()) {
-						if err := s.startChild(s.children[msg.PID()].supervisable, 0); err != nil {
-							slog.Error("DynamicSupervisor.loop: failed to restart child", "error", err)
-							hasFailed = true
-						}
-					} else if s.shouldExit(msg.PID()) {
-						slog.Debug("StaticSupervisor.loop: being told to exit")
-						return msg.Unwrap()
-					}
-				}
-
-			case <-ticker.C:
-				slog.Debug("StaticSupervisor.loop: checking children")
-				if !hasFailed {
-					continue
-				}
-
-				var newFailed bool
-				for pid := range s.children {
-					if _, exists := s.children[pid]; !exists {
-						if s.shouldRestart(pid) {
-							if err := s.startChild(s.children[pid].supervisable, 0); err != nil {
-								slog.Error("DynamicSupervisor.loop: failed to restart child", "error", err)
-								newFailed = true
-							}
-						}
-					}
-				}
-				hasFailed = newFailed
-			}
-		}
-	}
 }

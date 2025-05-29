@@ -31,10 +31,10 @@ func stepSerial() {
 	atomic.StoreUint64(&localID, 0)
 }
 
-func register(p Registerable[PID]) func() {
-	registry.Put(p)
+func register(p Running) func() {
+	registry.Put(p.PID(), p)
 	return func() {
-		registry.Delete(p)
+		registry.Delete(p.PID())
 	}
 }
 

@@ -6,6 +6,15 @@ import (
 	"time"
 )
 
+type Running interface {
+	PID() PID
+	Send(Msg, time.Duration) error
+	SendAfter(Msg, time.Duration) (*time.Timer, error)
+	Receive() <-chan Msg
+	Exit(error, time.Duration) error
+	Exited() bool
+}
+
 type SpawnOpt func(*Process)
 
 type RunFn func(*Process, <-chan Msg) error
@@ -77,7 +86,7 @@ func (p *Process) cleanup(reason *error, timeout time.Duration) error {
 		slog.Debug("Process sending exit to linked process", "pid", p.pid, "linked", p.linked)
 		return Send(p.linked, NewExit(p.pid, p.reason), timeout)
 	}
-	slog.Debug("Process exiting: %v", "pid", p.pid, "reason", p.reason)
+	slog.Debug("Process exiting", "pid", p.pid, "reason", p.reason)
 	return nil
 }
 
@@ -90,7 +99,7 @@ func (p *Process) Exited() bool {
 	return p.reason != nil
 }
 
-func (p *Process) ID() PID {
+func (p *Process) PID() PID {
 	return p.pid
 }
 
@@ -98,10 +107,17 @@ func (p *Process) Send(msg Msg, timeout time.Duration) error {
 	return p.mailbox.Send(msg, timeout)
 }
 
-func (p *Process) SendAfter(msg Msg, after time.Duration) *time.Timer {
+func (p *Process) SendAfter(msg Msg, after time.Duration) (*time.Timer, error) {
+	if p.mailbox.ch == nil {
+		return nil, NewNotStarted()
+	}
 	return time.AfterFunc(after, func() {
 		_ = p.Send(msg, 0)
-	})
+	}), nil
+}
+
+func (p *Process) Receive() <-chan Msg {
+	return p.mailbox.Receive()
 }
 
 func (p *Process) Reason() error {

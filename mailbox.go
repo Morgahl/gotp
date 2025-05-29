@@ -6,8 +6,9 @@ import (
 )
 
 const (
-	MAILBOX_SIZE    = 100
-	DEFAULT_TIMEOUT = 5 * time.Second
+	MAILBOX_SIZE     = 100
+	DEFAULT_TIMEOUT  = 5 * time.Second
+	DEFAULT_SHUTDOWN = 30 * time.Second
 )
 
 type MailboxWeak = Mailbox[Msg]

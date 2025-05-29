@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Morgahl/gotp/internal/ctx"
+
 	"github.com/Morgahl/gotp/internal/gpmd"
 )
 

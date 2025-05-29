@@ -7,6 +7,11 @@ import (
 
 type Msg interface{}
 
+type MsgMetadata interface {
+	Msg
+	Metadata() map[string]any
+}
+
 var _ error = Exit{}
 
 type Exit struct {
@@ -46,4 +51,10 @@ func NewTimeout(dur time.Duration) Timeout {
 
 func (t Timeout) Error() string {
 	return fmt.Sprintf("Timeout{reason: %v}", t.reason)
+}
+
+type Kill struct{}
+
+func (k Kill) Error() string {
+	return "Kill{}"
 }
