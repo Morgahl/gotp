@@ -1,41 +1,41 @@
 package gotp
 
 import (
-	"context"
+	"log/slog"
 	"sync"
 )
 
-type Registerable[ID comparable] interface {
-	ID() ID
-	Send(context.Context, Msg) error
-}
+const (
+	REGISTRY_DEFAULT_SIZE = 100
+)
 
 type Registry[ID comparable] struct {
 	mu    sync.RWMutex
-	procs map[ID]Registerable[ID]
+	procs map[ID]Running
 }
 
 func New[ID comparable]() *Registry[ID] {
 	return &Registry[ID]{
-		procs: make(map[ID]Registerable[ID], 100),
+		procs: make(map[ID]Running, REGISTRY_DEFAULT_SIZE),
 	}
 }
 
-func (r *Registry[ID]) Get(id ID) (p Registerable[ID], exists bool) {
+func (r *Registry[ID]) Get(id ID) (p Running, exists bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	p, exists = r.procs[id]
 	return
 }
 
-func (r *Registry[ID]) Put(p Registerable[ID]) {
+func (r *Registry[ID]) Put(id ID, p Running) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.procs[p.ID()] = p
+	r.procs[id] = p
 }
 
-func (r *Registry[ID]) Delete(p Registerable[ID]) {
+func (r *Registry[ID]) Delete(id ID) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	delete(r.procs, p.ID())
+	slog.Debug("Registry.Delete", "id", id)
+	delete(r.procs, id)
 }

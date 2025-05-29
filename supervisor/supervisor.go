@@ -1,14 +1,17 @@
 package supervisor
 
 import (
-	"context"
 	"fmt"
 	"time"
 
 	"github.com/Morgahl/gotp"
 )
 
-type Options map[string]interface{}
+type Supervisor interface {
+	gotp.Supervisable
+	StartChild(gotp.Supervisable, time.Duration) error
+	StopChild(gotp.PID, time.Duration) error
+}
 
 type Strategy uint8
 
@@ -56,11 +59,12 @@ type Flags struct {
 	AutoShutdown
 	MaxRestarts uint
 	ResetPeriod time.Duration
+	Shutdown    time.Duration
 	Strategy
 }
 
 func (f Flags) String() string {
-	return fmt.Sprintf("Flags{AutoShutdown: %s, MaxRestarts: %d, ResetPeriod: %s, Strategy: %s}", f.AutoShutdown, f.MaxRestarts, f.ResetPeriod, f.Strategy)
+	return fmt.Sprintf("Flags{AutoShutdown: %s, MaxRestarts: %d, ResetPeriod: %s, Shutdown: %s, Strategy: %s}", f.AutoShutdown, f.MaxRestarts, f.ResetPeriod, f.Shutdown, f.Strategy)
 }
 
 func (f Flags) ApplyDefaults() Flags {
@@ -70,69 +74,31 @@ func (f Flags) ApplyDefaults() Flags {
 	if f.ResetPeriod == 0 {
 		f.ResetPeriod = 5 * time.Second
 	}
+	if f.Shutdown == 0 {
+		f.Shutdown = 30 * time.Second
+	}
 	return f
 }
 
-type Restart uint8
+func StartChild(s Supervisor, child gotp.Supervisable, timeout time.Duration) error {
+	return s.StartChild(child, timeout)
+}
 
-const (
-	PERMANENT Restart = iota
-	TRANSIENT
-	TEMPORARY
-)
-
-func (r Restart) String() string {
-	switch r {
-	case PERMANENT:
-		return "PERMANENT"
-	case TRANSIENT:
-		return "TRANSIENT"
-	case TEMPORARY:
-		return "TEMPORARY"
-	default:
-		return fmt.Sprintf("Restart(%v)", uint8(r))
+func StopChild(s Supervisor, pid gotp.PID, timeout time.Duration) error {
+	if pid == gotp.PIDZero() {
+		// better error
+		return fmt.Errorf("cannot stop child with zero PID")
 	}
+	return s.StopChild(pid, timeout)
 }
 
-type Type uint8
-
-const (
-	WORKER Type = iota
-	SUPERVISOR
-)
-
-func (t Type) String() string {
-	switch t {
-	case WORKER:
-		return "WORKER"
-	case SUPERVISOR:
-		return "SUPERVISOR"
-	default:
-		return fmt.Sprintf("Type(%v)", uint8(t))
-	}
+type child struct {
+	supervisable gotp.Supervisable
+	running      gotp.Running
+	restart      restart
 }
 
-type ChildSpec struct {
-	Name string
-	Restart
-	Shutdown time.Duration
-	Type
-	Significant bool
-	SpawnOpts   []gotp.SpawnOpt
-}
-
-func (c ChildSpec) String() string {
-	return fmt.Sprintf("ChildSpec{Name: %s, Restart: %s, Shutdown: %s, Type: %s, Significant: %t}", c.Name, c.Restart, c.Shutdown, c.Type, c.Significant)
-}
-
-type Supervisable interface {
-	ID() gotp.PID
-	ChildSpec() ChildSpec
-	StartLink(context.Context, gotp.PID, ...gotp.SpawnOpt) (Supervisable, error)
-}
-
-type Supervisor interface {
-	Supervisable
-	StartChild(Supervisable) error
-	StopChild(gotp.PID) error
+type restart struct {
+	count uint
+	at    time.Time
 }

@@ -1,158 +1,128 @@
 package gotp
 
 import (
-	"context"
 	"fmt"
-	"sync"
+	"log/slog"
 	"time"
 )
 
-const (
-	MAILBOX_SIZE = 100
-	UNLINKED     = 0
-)
-
-type PID uint64
-
-func (p PID) String() string {
-	return fmt.Sprintf("PID<%d>", p)
+type Running interface {
+	PID() PID
+	Send(Msg, time.Duration) error
+	SendAfter(Msg, time.Duration) (*time.Timer, error)
+	Receive() <-chan Msg
+	Exit(error, time.Duration) error
+	Exited() bool
 }
 
 type SpawnOpt func(*Process)
 
-func Size(size int) SpawnOpt {
-	return func(p *Process) {
-		if p.ch == nil {
-			p.ch = make(chan Msg, size)
-		}
-	}
-}
-
-type RunFn func(ctx context.Context, proc *Process, in <-chan Msg) error
+type RunFn func(*Process, <-chan Msg) error
 
 type Process struct {
 	pid    PID
 	linked PID
 
-	// mu protects everything below treating lifecycle events as full locks and send events as read
-	// locks; reason and error
-	mu sync.RWMutex
-	ch chan Msg
-
+	mailbox     Mailbox[Msg]
 	reason      error
-	exit        context.CancelFunc
 	deregHandle func()
 }
 
-func Spawn(ctx context.Context, fn RunFn, opts ...SpawnOpt) *Process {
-	p := build(UNLINKED, opts)
-	ctx = p.setupContext(ctx)
+func Spawn(fn RunFn, timeout time.Duration, opts ...SpawnOpt) *Process {
+	p := build(PID{}, opts)
 	p.deregHandle = register(p)
-	go p.run(ctx, fn)
+	go p.run(fn)
 	return p
 }
 
-func SpawnLink(ctx context.Context, link PID, fn RunFn, opts ...SpawnOpt) *Process {
+func SpawnLink(link PID, fn RunFn, timeout time.Duration, opts ...SpawnOpt) *Process {
 	p := build(link, opts)
-	ctx = p.setupContext(ctx)
 	p.deregHandle = register(p)
-	go p.run(ctx, fn)
+	go p.run(fn)
 	return p
 }
 
 func build(link PID, opts []SpawnOpt) *Process {
 	p := &Process{pid: nextPID(), linked: link}
-
 	for _, opt := range opts {
 		opt(p)
 	}
-
-	// handle defaults lazily to limit allocs
-	if p.ch == nil {
-		p.ch = make(chan Msg, MAILBOX_SIZE)
+	if p.mailbox.ch == nil {
+		p.mailbox = NewMailbox[Msg](MAILBOX_SIZE)
 	}
-
 	return p
 }
 
-func (p *Process) cleanup(ctx context.Context, reason *error) {
-	var haveLock bool
+func (p *Process) run(fn RunFn) {
+	var reason error
+	defer p.cleanup(&reason, 0)
+	reason = fn(p, p.mailbox.ch)
+}
+
+func (p *Process) cleanup(reason *error, timeout time.Duration) error {
+	p.mailbox.mu.Lock()
+	defer p.mailbox.mu.Unlock()
+	if p.deregHandle == nil {
+		slog.Debug("Process already deregistered", "pid", p.pid)
+		return nil
+	}
+
+	defer func() {
+		p.deregHandle()
+		p.deregHandle = nil
+	}()
 	if r := recover(); r != nil {
-		p.mu.Lock()
-		haveLock = true
+		slog.Error("Process panicked", "pid", p.pid, "reason", r)
 		if reason != nil {
 			p.reason = fmt.Errorf("reason: %v, panic: %v", *reason, r)
 		} else {
 			p.reason = fmt.Errorf("panic: %v", r)
 		}
+	} else if *reason != nil {
+		p.reason = *reason
 	}
-	if !haveLock {
-		p.mu.Lock()
+
+	if !p.linked.IsZero() {
+		slog.Debug("Process sending exit to linked process", "pid", p.pid, "linked", p.linked)
+		return Send(p.linked, NewExit(p.pid, p.reason), timeout)
 	}
-	defer p.mu.Unlock()
-	defer p.deregHandle()
-	p.exit()
-	if p.linked != UNLINKED {
-		Send(ctx, p.linked, NewExit(p.pid, p.reason))
-	}
+	slog.Debug("Process exiting", "pid", p.pid, "reason", p.reason)
+	return nil
 }
 
-func (p *Process) setupContext(ctx context.Context) context.Context {
-	if p.linked != UNLINKED {
-		ctx = context.WithValue(ctx, linkedKey{}, p.linked)
-	}
-	ctx = context.WithValue(ctx, pidKey{}, p.pid)
-	ctx, p.exit = context.WithCancel(ctx)
-	return ctx
+func (p *Process) Exit(reason error, timeout time.Duration) error {
+	slog.Debug("Process exiting: calling cleanup", "pid", p.pid)
+	return p.cleanup(&reason, timeout)
 }
 
-func (p *Process) run(ctx context.Context, fn RunFn) {
-	var reason error
-	defer p.cleanup(ctx, &reason)
-	reason = fn(ctx, p, p.ch)
+func (p *Process) Exited() bool {
+	return p.reason != nil
 }
 
-func (p *Process) Exit(ctx context.Context, reason error) error {
-	p.cleanup(ctx, &reason)
-	select {
-	case <-p.ch:
-		return p.reason
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
-
-func (p *Process) ID() PID {
+func (p *Process) PID() PID {
 	return p.pid
 }
 
-func (p *Process) Send(ctx context.Context, msg Msg) error {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	select {
-	case <-ctx.Done():
-		return NewTimeout(ctx.Err())
-	case p.ch <- msg:
-		return nil
+func (p *Process) Send(msg Msg, timeout time.Duration) error {
+	return p.mailbox.Send(msg, timeout)
+}
+
+func (p *Process) SendAfter(msg Msg, after time.Duration) (*time.Timer, error) {
+	if p.mailbox.ch == nil {
+		return nil, NewNotStarted()
 	}
-}
-
-func (p *Process) SendAfter(ctx context.Context, msg Msg, after time.Duration) *time.Timer {
 	return time.AfterFunc(after, func() {
-		p.Send(ctx, msg)
-	})
+		_ = p.Send(msg, 0)
+	}), nil
 }
 
-type pidKey struct{}
-
-func CtxPID(ctx context.Context) (PID, bool) {
-	pid, ok := ctx.Value(pidKey{}).(PID)
-	return pid, ok
+func (p *Process) Receive() <-chan Msg {
+	return p.mailbox.Receive()
 }
 
-type linkedKey struct{}
-
-func CtxLinked(ctx context.Context) (PID, bool) {
-	pid, ok := ctx.Value(linkedKey{}).(PID)
-	return pid, ok
+func (p *Process) Reason() error {
+	if p.reason != nil {
+		return p.reason
+	}
+	return fmt.Errorf("process %s not exited", p.pid)
 }

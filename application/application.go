@@ -4,8 +4,23 @@ import (
 	"fmt"
 
 	"github.com/Morgahl/gotp"
-	"github.com/Morgahl/gotp/supervisor"
 )
+
+type Application interface {
+	Name() string
+	Version() Version
+	Start(StartType) (gotp.Supervisable, error)
+}
+
+type PrepareStop interface {
+	Application
+	PrepareStop() error
+}
+
+type Stop interface {
+	Application
+	Stop() error
+}
 
 type startType uint8
 
@@ -49,36 +64,16 @@ func (st StartType) IsNormal() bool {
 	return st.startType == NORMAL
 }
 
-func (st StartType) IsTakeover() (node gotp.Node, exists bool) {
+func (st StartType) IsTakeover() (node gotp.Node, ok bool) {
 	if st.startType == TAKEOVER {
 		return st.node, true
 	}
 	return
 }
 
-func (st StartType) IsFailover() (node gotp.Node, exists bool) {
+func (st StartType) IsFailover() (node gotp.Node, ok bool) {
 	if st.startType == FAILOVER {
 		return st.node, true
 	}
 	return
-}
-
-type Application interface {
-	Name() string
-	Start(StartType) (supervisor.Supervisable, error)
-}
-
-type PrepareStop interface {
-	Application
-	PrepareStop() error
-}
-
-type Stop interface {
-	Application
-	Stop() error
-}
-
-type Runtime struct {
-	node gotp.Node
-	apps map[string]Application
 }
