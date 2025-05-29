@@ -18,7 +18,7 @@ func (FooApplication) Version() application.Version {
 }
 
 func (FooApplication) Start(st application.StartType) (gotp.Supervisable, error) {
-	srvr := server.New(&NoOp[gotp.Msg, gotp.Msg, gotp.Msg, gotp.Msg, any]{})
+	srvr := server.New(&NoOp{})
 	static := supervisor.Static(supervisor.Flags{}, srvr)
 	root := supervisor.Static(supervisor.Flags{}, static)
 	return root, nil

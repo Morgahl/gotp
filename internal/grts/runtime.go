@@ -33,7 +33,6 @@ func Init() {
 }
 
 func Main(app application.Application) (err error) {
-	Init()
 	ctx := ctx.Root()
 	defer ctx.Cancel(fmt.Errorf("main: exiting"))
 
