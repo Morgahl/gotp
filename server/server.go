@@ -13,7 +13,7 @@ type Serverable[
 	R gotp.Msg,
 	Cs gotp.Msg,
 	I gotp.Msg,
-	Ct any,
+	Ct gotp.Msg,
 ] interface {
 	ChildSpec() gotp.ChildSpec
 	Init(gotp.Options) (Continue[Ct], error)
@@ -33,7 +33,7 @@ type Server[
 	R gotp.Msg,
 	Cs gotp.Msg,
 	I gotp.Msg,
-	Ct any,
+	Ct gotp.Msg,
 ] struct {
 	server  Serverable[Cl, R, Cs, I, Ct]
 	process *gotp.Process
@@ -45,7 +45,7 @@ func Start[
 	R gotp.Msg,
 	Cs gotp.Msg,
 	I gotp.Msg,
-	Ct any,
+	Ct gotp.Msg,
 ](server Serverable[Cl, R, Cs, I, Ct], timeout time.Duration, opts ...gotp.SpawnOpt) (gotp.Started, error) {
 	return New(server).Start(timeout, opts...)
 }
@@ -55,7 +55,7 @@ func StartLink[
 	R gotp.Msg,
 	Cs gotp.Msg,
 	I gotp.Msg,
-	Ct any,
+	Ct gotp.Msg,
 ](server Serverable[Cl, R, Cs, I, Ct], link gotp.PID, timeout time.Duration, opts ...gotp.SpawnOpt) (gotp.Supervised, error) {
 	return New(server).StartLink(link, timeout, opts...)
 }
@@ -65,7 +65,7 @@ func New[
 	R gotp.Msg,
 	Cs gotp.Msg,
 	I gotp.Msg,
-	Ct any,
+	Ct gotp.Msg,
 ](server Serverable[Cl, R, Cs, I, Ct]) *Server[Cl, R, Cs, I, Ct] {
 	return &Server[Cl, R, Cs, I, Ct]{server: server}
 }
@@ -75,16 +75,7 @@ func (s *Server[Cl, R, Cs, I, Ct]) ChildSpec() gotp.ChildSpec {
 }
 
 func (s *Server[Cl, R, Cs, I, Ct]) Start(timeout time.Duration, opts ...gotp.SpawnOpt) (gotp.Started, error) {
-	if timeout <= 0 {
-		timeout = gotp.DEFAULT_TIMEOUT
-	}
-
-	select {
-	case <-time.After(timeout):
-		return nil, gotp.NewTimeout(timeout)
-	case <-s.setupProc(gotp.PIDZero(), timeout, opts...):
-		return s, nil
-	}
+	return s.StartLink(gotp.PIDZero(), timeout, opts...)
 }
 
 func (s *Server[Cl, R, Cs, I, Ct]) StartLink(link gotp.PID, timeout time.Duration, opts ...gotp.SpawnOpt) (gotp.Supervised, error) {
@@ -98,10 +89,6 @@ func (s *Server[Cl, R, Cs, I, Ct]) StartLink(link gotp.PID, timeout time.Duratio
 	case <-s.setupProc(link, timeout, opts...):
 		return s, nil
 	}
-}
-
-func (s *Server[Cl, R, Cs, I, Ct]) PID() gotp.PID {
-	return s.process.PID()
 }
 
 func (s *Server[Cl, R, Cs, I, Ct]) Call(msg Cl, timeout time.Duration) (resp R, err error) {
@@ -129,6 +116,10 @@ func (s *Server[Cl, R, Cs, I, Ct]) Cast(msg Cs, timeout time.Duration) error {
 
 func (s *Server[Cl, R, Cs, I, Ct]) Info(msg I, timeout time.Duration) error {
 	return s.process.Send(newInfoMsg(msg), timeout)
+}
+
+func (s *Server[Cl, R, Cs, I, Ct]) PID() gotp.PID {
+	return s.process.PID()
 }
 
 func (s *Server[Cl, R, Cs, I, Ct]) Exit(reason error, timeout time.Duration) error {

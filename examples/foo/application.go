@@ -17,13 +17,13 @@ func (FooApplication) Version() application.Version {
 }
 
 func (FooApplication) Start(st application.StartType) (gotp.Supervisable, error) {
-	srvr0 := NewServer("alice")
-	srvr1 := NewServer("bob")
-	srvr2 := NewServer("charlie")
-	static := NewSupervisor("foo", supervisor.Flags{}, srvr0, srvr1, srvr2)
-	srvr3 := NewServer("dave")
-	srvr4 := NewServer("eve")
-	srvr5 := NewServer("frank")
-	root := NewSupervisor("bar", supervisor.Flags{}, static, srvr3, srvr4, srvr5)
-	return root, nil
+	return NewSupervisor("foo", supervisor.Flags{},
+		NewSupervisor("bar", supervisor.Flags{},
+			NewServer("alice"),
+			NewServer("bob"),
+			NewServer("charlie")),
+		NewServer("dave"),
+		NewServer("eve"),
+		NewServer("frank"),
+	), nil
 }

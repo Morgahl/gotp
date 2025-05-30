@@ -9,13 +9,17 @@ import (
 )
 
 var _ gotp.Supervisable = &FooServer{}
-var _ server.Serverable[gotp.Msg, gotp.Msg, gotp.Msg, gotp.Msg, any] = &FooServer{}
+var _ server.Serverable[any, any, any, any, any] = &FooServer{}
 
 type FooServer struct {
 	name string
+
+	// Embed the server.DefaultHandlers to provide default implementations
+	// for the server.Serverable interface methods.
+	server.DefaultHandlers[any]
 }
 
-func NewServer(name string) gotp.Supervisable {
+func NewServer(name string) *FooServer {
 	return &FooServer{
 		name: name,
 	}
@@ -43,27 +47,7 @@ func (f *FooServer) Init(opts gotp.Options) (server.Continue[any], error) {
 	return server.NoCont[any](), nil
 }
 
-func (f *FooServer) HandleCall(call gotp.Msg, from gotp.PID) (server.Response[gotp.Msg], server.Continue[any], error) {
-	return server.NoReply[gotp.Msg](), server.NoCont[any](), nil
-}
-
-func (f *FooServer) HandleCast(cast gotp.Msg) (server.Continue[any], error) {
-	return server.NoCont[any](), nil
-}
-
-func (f *FooServer) HandleContinue(cont any) (server.Continue[any], error) {
-	return server.NoCont[any](), nil
-}
-
-func (f *FooServer) HandleInfo(info gotp.Msg) (server.Continue[any], error) {
-	return server.NoCont[any](), nil
-}
-
-func (f *FooServer) HandleAny(msg gotp.Msg) (server.Continue[any], error) {
-	return server.NoCont[any](), nil
-}
-
-func (f *FooServer) Terminate(err error) error {
-	slog.Debug("FooServer.Terminate called", "error", err)
-	return err
+func (f *FooServer) Terminate(reason error) error {
+	slog.Debug("FooServer.Terminate called", "name", f.name, "error", reason)
+	return reason
 }
