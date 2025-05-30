@@ -36,13 +36,7 @@ func Main(app application.Application) (err error) {
 	ctx := ctx.Root()
 	defer ctx.Cancel(fmt.Errorf("main: exiting"))
 
-	var sup gotp.Supervisable
-	if sup, err = app.Start(application.Normal()); err != nil {
-		slog.ErrorContext(ctx, "main: failed to start application", "error", err)
-		return fmt.Errorf("failed to start application: %w", err)
-	}
-
-	root := gotp.Spawn(mainLoop(ctx, sup), 0)
+	root := gotp.Spawn(mainLoop(ctx, app), 0)
 	slog.InfoContext(ctx, "root process started", "pid", root.PID())
 
 	<-ctx.Done()
@@ -72,7 +66,7 @@ EXIT:
 	return context.Cause(ctx)
 }
 
-func mainLoop(rootCtx ctx.Cancellable, root gotp.Supervisable) gotp.RunFn {
+func mainLoop(rootCtx ctx.Cancellable, app application.Application) gotp.RunFn {
 	return func(p *gotp.Process, in <-chan gotp.Msg) (reason error) {
 		defer func() {
 			if r := recover(); r != nil {
@@ -84,32 +78,35 @@ func mainLoop(rootCtx ctx.Cancellable, root gotp.Supervisable) gotp.RunFn {
 			rootCtx.Cancel(reason)
 		}()
 
-		slog.Info("mainLoop: starting supervision tree")
-		var sup gotp.Supervisable
-		if sup, reason = root.StartLink(p.PID(), 0); reason != nil {
-			slog.Error("mainLoop: failed to start supervision tree", "error", reason)
+		var root gotp.Supervisable
+		var sup gotp.Supervised
+		if root, reason = app.Start(application.Normal()); reason != nil {
+			slog.ErrorContext(rootCtx, "main: failed to start application", "error", reason)
+			return fmt.Errorf("failed to start application: %w", reason)
+		} else if sup, reason = root.StartLink(p.PID(), 0); reason != nil {
+			slog.ErrorContext(rootCtx, "mainLoop: failed to start supervision tree", "error", reason)
 			return reason
 		}
-		slog.Info("mainLoop: supervision tree started", "id", sup.PID())
+		slog.InfoContext(rootCtx, "mainLoop: supervision tree started", "id", sup.PID())
 
 		<-rootCtx.Done()
 		reason = context.Cause(rootCtx)
-		slog.Info("shutting down", "reason", reason)
+		slog.InfoContext(rootCtx, "shutting down", "reason", reason)
 
-		sup.Send(gotp.NewExit(root.PID(), reason), 0)
-		slog.Info("mainLoop: waiting for messages")
+		sup.Send(gotp.NewExit(sup.PID(), reason), 0)
+		slog.InfoContext(rootCtx, "mainLoop: waiting for messages")
 		for msg := range in {
-			slog.Info("mainLoop: received message", "msg", msg)
+			slog.InfoContext(rootCtx, "mainLoop: received message", "msg", msg)
 			switch msg := msg.(type) {
 			case gotp.Exit:
-				slog.Info("mainLoop: received exit", "msg", msg)
+				slog.InfoContext(rootCtx, "mainLoop: received exit", "msg", msg)
 				return msg.Unwrap()
 			default:
-				slog.Warn("mainLoop: ignoring message", "msg", msg)
+				slog.WarnContext(rootCtx, "mainLoop: ignoring message", "msg", msg)
 			}
 		}
 
-		slog.Info("mainLoop: exiting")
+		slog.InfoContext(rootCtx, "mainLoop: exiting")
 		return reason
 	}
 }

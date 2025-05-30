@@ -6,7 +6,11 @@ import (
 	"time"
 )
 
-type Running interface {
+type Startable interface {
+	Start(timeout time.Duration, opts ...SpawnOpt) (Started, error)
+}
+
+type Started interface {
 	PID() PID
 	Send(Msg, time.Duration) error
 	SendAfter(Msg, time.Duration) (*time.Timer, error)
@@ -63,7 +67,6 @@ func (p *Process) cleanup(reason *error, timeout time.Duration) error {
 	p.mailbox.mu.Lock()
 	defer p.mailbox.mu.Unlock()
 	if p.deregHandle == nil {
-		slog.Debug("Process already deregistered", "pid", p.pid)
 		return nil
 	}
 
@@ -83,15 +86,12 @@ func (p *Process) cleanup(reason *error, timeout time.Duration) error {
 	}
 
 	if !p.linked.IsZero() {
-		slog.Debug("Process sending exit to linked process", "pid", p.pid, "linked", p.linked)
 		return Send(p.linked, NewExit(p.pid, p.reason), timeout)
 	}
-	slog.Debug("Process exiting", "pid", p.pid, "reason", p.reason)
 	return nil
 }
 
 func (p *Process) Exit(reason error, timeout time.Duration) error {
-	slog.Debug("Process exiting: calling cleanup", "pid", p.pid)
 	return p.cleanup(&reason, timeout)
 }
 

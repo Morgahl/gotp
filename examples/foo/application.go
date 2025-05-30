@@ -3,7 +3,6 @@ package foo
 import (
 	"github.com/Morgahl/gotp"
 	"github.com/Morgahl/gotp/application"
-	"github.com/Morgahl/gotp/server"
 	"github.com/Morgahl/gotp/supervisor"
 )
 
@@ -18,8 +17,13 @@ func (FooApplication) Version() application.Version {
 }
 
 func (FooApplication) Start(st application.StartType) (gotp.Supervisable, error) {
-	srvr := server.New(&NoOp{})
-	static := supervisor.Static(supervisor.Flags{}, srvr)
-	root := supervisor.Static(supervisor.Flags{}, static)
+	srvr0 := NewServer("alice")
+	srvr1 := NewServer("bob")
+	srvr2 := NewServer("charlie")
+	static := NewSupervisor("foo", supervisor.Flags{}, srvr0, srvr1, srvr2)
+	srvr3 := NewServer("dave")
+	srvr4 := NewServer("eve")
+	srvr5 := NewServer("frank")
+	root := NewSupervisor("bar", supervisor.Flags{}, static, srvr3, srvr4, srvr5)
 	return root, nil
 }

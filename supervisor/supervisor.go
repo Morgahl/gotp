@@ -8,9 +8,8 @@ import (
 )
 
 type Supervisor interface {
-	gotp.Supervisable
-	StartChild(gotp.Supervisable, time.Duration) error
-	StopChild(gotp.PID, time.Duration) error
+	ChildSpec() gotp.ChildSpec
+	Init(gotp.Options) (Flags, []gotp.Supervisable, error)
 }
 
 type Strategy uint8
@@ -80,21 +79,9 @@ func (f Flags) ApplyDefaults() Flags {
 	return f
 }
 
-func StartChild(s Supervisor, child gotp.Supervisable, timeout time.Duration) error {
-	return s.StartChild(child, timeout)
-}
-
-func StopChild(s Supervisor, pid gotp.PID, timeout time.Duration) error {
-	if pid == gotp.PIDZero() {
-		// better error
-		return fmt.Errorf("cannot stop child with zero PID")
-	}
-	return s.StopChild(pid, timeout)
-}
-
 type child struct {
 	supervisable gotp.Supervisable
-	running      gotp.Running
+	running      gotp.Started
 	restart      restart
 }
 

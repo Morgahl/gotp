@@ -31,16 +31,17 @@ func stepSerial() {
 	atomic.StoreUint64(&localID, 0)
 }
 
-func register(p Running) func() {
-	registry.Put(p.PID(), p)
+func register(p Started) func() {
+	pid := p.PID()
+	registry.Put(pid, p)
 	return func() {
-		registry.Delete(p.PID())
+		registry.Delete(pid)
 	}
 }
 
 func Send(pid PID, msg Msg, timeout time.Duration) error {
 	if proc, exists := registry.Get(pid); exists {
-		slog.Debug("global.Send", slog.String("pid", pid.String()), slog.String("msg", fmt.Sprintf("%v", msg)))
+		slog.Warn("global.Send", slog.String("pid", pid.String()), slog.String("msg", fmt.Sprintf("%v", msg)))
 		return proc.Send(msg, timeout)
 	}
 	return NewUnknownPID(pid)

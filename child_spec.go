@@ -6,9 +6,13 @@ import (
 )
 
 type Supervisable interface {
-	Running
 	ChildSpec() ChildSpec
-	StartLink(PID, time.Duration, ...SpawnOpt) (Supervisable, error)
+	StartLink(PID, time.Duration, ...SpawnOpt) (Supervised, error)
+}
+
+type Supervised interface {
+	Started
+	Supervisable
 }
 
 type ChildSpec struct {
