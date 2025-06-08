@@ -61,14 +61,6 @@ func (s *StaticSupervisor) Receive() <-chan gotp.Msg {
 	return s.server.Receive()
 }
 
-func (s *StaticSupervisor) Exit(reason error, timeout time.Duration) error {
-	return s.server.Exit(reason, timeout)
-}
-
-func (s *StaticSupervisor) Exited() bool {
-	return s.server.Exited()
-}
-
 func (s *StaticSupervisor) StartChild(child gotp.Supervisable, timeout time.Duration) error {
 	if child == nil {
 		return NewInvalidChild(child)
@@ -125,7 +117,7 @@ func (s *StaticSupervisor) HandleCall(msg gotp.Msg, _ gotp.PID) (resp server.Res
 	case stopChild:
 		if child, ok := s.findChildByPID(m.pid); !ok {
 			return server.Reply[gotp.Msg](false), server.NoCont[gotp.Msg](), nil
-		} else if err := child.running.Exit(gotp.Kill{}, 0); err != nil {
+		} else if err := child.running.Send(gotp.NewExit(m.pid, gotp.Kill{}), 0); err != nil {
 			slog.Error("StaticSupervisor.HandleCall: failed to stop child", "pid", m.pid, "error", err)
 			return server.Reply[gotp.Msg](err), server.NoCont[gotp.Msg](), nil
 		} else {

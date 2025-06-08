@@ -9,12 +9,13 @@ import (
 )
 
 func init() {
-	grts.Init()
+	grts.Setup()
 }
 
 func main() {
 	slog.Info("main: starting application",
 		"name", foo.FooApplication{}.Name(),
 		"version", foo.FooApplication{}.Version())
-	slog.Info("main: application exited", "reason", grts.Main(foo.FooApplication{}))
+	reason := grts.Run(foo.FooApplication{})
+	slog.Info("main: application exited", "reason", reason)
 }

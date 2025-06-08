@@ -15,13 +15,11 @@ type Started interface {
 	Send(Msg, time.Duration) error
 	SendAfter(Msg, time.Duration) (*time.Timer, error)
 	Receive() <-chan Msg
-	Exit(error, time.Duration) error
-	Exited() bool
 }
 
 type SpawnOpt func(*Process)
 
-type RunFn func(*Process, <-chan Msg) error
+type RunFn func(*Process) error
 
 type Process struct {
 	pid    PID
@@ -32,14 +30,14 @@ type Process struct {
 	deregHandle func()
 }
 
-func Spawn(fn RunFn, timeout time.Duration, opts ...SpawnOpt) *Process {
+func Spawn(fn RunFn, opts ...SpawnOpt) *Process {
 	p := build(PID{}, opts)
 	p.deregHandle = register(p)
 	go p.run(fn)
 	return p
 }
 
-func SpawnLink(link PID, fn RunFn, timeout time.Duration, opts ...SpawnOpt) *Process {
+func SpawnLink(fn RunFn, link PID, opts ...SpawnOpt) *Process {
 	p := build(link, opts)
 	p.deregHandle = register(p)
 	go p.run(fn)
@@ -60,20 +58,21 @@ func build(link PID, opts []SpawnOpt) *Process {
 func (p *Process) run(fn RunFn) {
 	var reason error
 	defer p.cleanup(&reason, 0)
-	reason = fn(p, p.mailbox.ch)
+	reason = fn(p)
 }
 
 func (p *Process) cleanup(reason *error, timeout time.Duration) error {
 	p.mailbox.mu.Lock()
 	defer p.mailbox.mu.Unlock()
+
 	if p.deregHandle == nil {
 		return nil
 	}
-
 	defer func() {
 		p.deregHandle()
 		p.deregHandle = nil
 	}()
+
 	if r := recover(); r != nil {
 		slog.Error("Process panicked", "pid", p.pid, "reason", r)
 		if reason != nil {

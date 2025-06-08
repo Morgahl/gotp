@@ -1,6 +1,8 @@
 package foo
 
 import (
+	"errors"
+
 	"github.com/Morgahl/gotp"
 	"github.com/Morgahl/gotp/application"
 	"github.com/Morgahl/gotp/supervisor"
@@ -9,7 +11,7 @@ import (
 type FooApplication struct{}
 
 func (FooApplication) Name() string {
-	return "FooApp"
+	return "FooApplication"
 }
 
 func (FooApplication) Version() application.Version {
@@ -17,13 +19,20 @@ func (FooApplication) Version() application.Version {
 }
 
 func (FooApplication) Start(st application.StartType) (gotp.Supervisable, error) {
-	return NewSupervisor("foo", supervisor.Flags{},
-		NewSupervisor("bar", supervisor.Flags{},
-			NewServer("alice"),
-			NewServer("bob"),
-			NewServer("charlie")),
-		NewServer("dave"),
-		NewServer("eve"),
-		NewServer("frank"),
-	), nil
+	if st.IsNormal() {
+		return NewFooSupervisor("foo", supervisor.Flags{},
+			NewFooSupervisor("bar", supervisor.Flags{},
+				NewFooServer("alice"),
+				NewFooServer("bob"),
+				NewFooServer("charlie")),
+			NewFooServer("dave"),
+			NewFooServer("eve"),
+			NewFooServer("frank"),
+		), nil
+	} else if _, ok := st.IsFailover(); ok {
+		return nil, errors.New("failover not supported in FooApplication")
+	} else if _, ok := st.IsTakeover(); ok {
+		return nil, errors.New("takeover not supported in FooApplication")
+	}
+	panic("unknown start type: " + st.String())
 }

@@ -19,7 +19,7 @@ type FooServer struct {
 	server.DefaultHandlers[any]
 }
 
-func NewServer(name string) *FooServer {
+func NewFooServer(name string) *FooServer {
 	return &FooServer{
 		name: name,
 	}
@@ -43,11 +43,11 @@ func (f *FooServer) StartLink(link gotp.PID, timeout time.Duration, opts ...gotp
 }
 
 func (f *FooServer) Init(opts gotp.Options) (server.Continue[any], error) {
-	slog.Debug("FooServer.Init called", "name", f.name, "opts", opts)
+	slog.Debug("FooServer.Init", "name", f.name, "opts", opts)
 	return server.NoCont[any](), nil
 }
 
 func (f *FooServer) Terminate(reason error) error {
-	slog.Debug("FooServer.Terminate called", "name", f.name, "error", reason)
+	slog.Debug("FooServer.Terminate", "name", f.name, "reason", reason)
 	return reason
 }

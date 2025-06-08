@@ -16,7 +16,7 @@ type FooSupervisor struct {
 	specs []gotp.Supervisable
 }
 
-func NewSupervisor(name string, flags supervisor.Flags, specs ...gotp.Supervisable) gotp.Supervisable {
+func NewFooSupervisor(name string, flags supervisor.Flags, specs ...gotp.Supervisable) gotp.Supervisable {
 	sup := &FooSupervisor{
 		name:  name,
 		flags: flags,
@@ -36,6 +36,6 @@ func (f *FooSupervisor) ChildSpec() gotp.ChildSpec {
 }
 
 func (f *FooSupervisor) Init(opts gotp.Options) (supervisor.Flags, []gotp.Supervisable, error) {
-	slog.Debug("FooSupervisor.Init called", "name", f.name, "specs", len(f.specs), "opts", opts)
+	slog.Debug("FooSupervisor.Init", "name", f.name, "specs", len(f.specs), "opts", opts)
 	return f.flags, f.specs, nil
 }

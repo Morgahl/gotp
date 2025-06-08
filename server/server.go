@@ -86,7 +86,7 @@ func (s *Server[Cl, R, Cs, I, Ct]) StartLink(link gotp.PID, timeout time.Duratio
 	select {
 	case <-time.After(timeout):
 		return nil, gotp.NewTimeout(timeout)
-	case <-s.setupProc(link, timeout, opts...):
+	case <-s.setupProc(link, opts...):
 		return s, nil
 	}
 }
@@ -122,14 +122,6 @@ func (s *Server[Cl, R, Cs, I, Ct]) PID() gotp.PID {
 	return s.process.PID()
 }
 
-func (s *Server[Cl, R, Cs, I, Ct]) Exit(reason error, timeout time.Duration) error {
-	return s.process.Send(gotp.NewExit(s.PID(), reason), timeout)
-}
-
-func (s *Server[Cl, R, Cs, I, Ct]) Exited() bool {
-	return s.process.Exited()
-}
-
 func (s *Server[Cl, R, Cs, I, Ct]) Send(msg gotp.Msg, timeout time.Duration) error {
 	if s.process == nil {
 		return gotp.NewNotStarted()
@@ -153,14 +145,14 @@ func (s *Server[Cl, R, Cs, I, Ct]) Receive() <-chan gotp.Msg {
 	return s.process.Receive()
 }
 
-func (s *Server[Cl, R, Cs, I, Ct]) setupProc(link gotp.PID, timeout time.Duration, opts ...gotp.SpawnOpt) <-chan struct{} {
+func (s *Server[Cl, R, Cs, I, Ct]) setupProc(link gotp.PID, opts ...gotp.SpawnOpt) <-chan struct{} {
 	sig := make(chan struct{})
-	s.process = gotp.SpawnLink(link, s.loop(sig), timeout, opts...)
+	s.process = gotp.SpawnLink(s.loop(sig), link, opts...)
 	return sig
 }
 
 func (s *Server[Cl, R, Cs, I, Ct]) loop(sig chan struct{}) gotp.RunFn {
-	return func(_ *gotp.Process, in <-chan gotp.Msg) (reason error) {
+	return func(p *gotp.Process) (reason error) {
 		var cont Continue[Ct]
 		defer func() {
 			if r := recover(); r != nil {
@@ -187,7 +179,7 @@ func (s *Server[Cl, R, Cs, I, Ct]) loop(sig chan struct{}) gotp.RunFn {
 				continue
 			}
 
-			for msg := range in {
+			for msg := range s.process.Receive() {
 				switch msg := msg.(type) {
 				case call[Cl, R]:
 					// We have a synchronous call and a chan to close after conditionally sending a
