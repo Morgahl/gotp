@@ -3,6 +3,7 @@ package supervisor
 import (
 	"fmt"
 	"log/slog"
+	"slices"
 	"time"
 
 	"github.com/Morgahl/gotp"
@@ -37,12 +38,12 @@ func (s *StaticSupervisor) ChildSpec() gotp.ChildSpec {
 	}
 }
 
-func (s *StaticSupervisor) Start(timeout time.Duration, opts ...gotp.SpawnOpt) (gotp.Started, error) {
-	return s.server.Start(timeout, opts...)
+func (s *StaticSupervisor) Start(opts ...gotp.SpawnOpt) (gotp.Started, error) {
+	return s.server.Start(opts...)
 }
 
-func (s *StaticSupervisor) StartLink(link gotp.PID, timeout time.Duration, opts ...gotp.SpawnOpt) (gotp.Supervised, error) {
-	return s.server.StartLink(link, timeout, opts...)
+func (s *StaticSupervisor) StartLink(link gotp.PID, opts ...gotp.SpawnOpt) (gotp.Supervised, error) {
+	return s.server.StartLink(link, opts...)
 }
 
 func (s *StaticSupervisor) PID() gotp.PID {
@@ -91,7 +92,7 @@ func (s *StaticSupervisor) Init(opts gotp.Options) (cont server.Continue[gotp.Ms
 		if child == nil {
 			slog.Error("StaticSupervisor.Init: child is nil, skipping")
 			continue
-		} else if running, err := s.startChild(child, 0); err != nil {
+		} else if running, err := s.startChild(child); err != nil {
 			slog.Error("StaticSupervisor.Init: failed to start child", "error", err)
 			return server.NoCont[gotp.Msg](), err
 		} else {
@@ -106,7 +107,7 @@ func (s *StaticSupervisor) HandleCall(msg gotp.Msg, _ gotp.PID) (resp server.Res
 	case startChild:
 		if pid, ok := s.findChild(m.child); ok {
 			return server.Reply[gotp.Msg](gotp.NewAlreadyStarted(pid)), server.NoCont[gotp.Msg](), nil
-		} else if running, err := s.startChild(m.child, 0); err != nil {
+		} else if running, err := s.startChild(m.child); err != nil {
 			slog.Error("StaticSupervisor.HandleCall: failed to start child", "error", err)
 			return server.Reply[gotp.Msg](err), server.NoCont[gotp.Msg](), nil
 		} else {
@@ -160,8 +161,21 @@ func (s *StaticSupervisor) HandleInfo(info gotp.Msg) (cont server.Continue[gotp.
 }
 func (s *StaticSupervisor) Terminate(reason error) (newReson error) {
 	timeout := time.After(s.flags.Shutdown)
+	children := make([]child, 0, len(s.children))
+	for _, c := range s.children {
+		children = append(children, c)
+	}
+
+	// TODO: ultimately we want to maintin the processes as a stack and reap them in reverse order
+	// TODO: for now, we sort them by PID in descending order to ensure that the most recently started processes are
+	// TODO: terminated first
+	slices.SortFunc(children, func(i, j child) int {
+		return gotp.ComparePID(i.running.PID(), j.running.PID()) * -1
+	})
+
 shutdown:
-	for pid, child := range s.children {
+	for _, child := range children {
+		pid := child.running.PID()
 		child.running.Send(gotp.NewExit(pid, reason), 0)
 
 		select {
@@ -200,10 +214,14 @@ func (s *StaticSupervisor) findChildByPID(pid gotp.PID) (child child, ok bool) {
 	return child, ok
 }
 
-func (s *StaticSupervisor) startChild(child gotp.Supervisable, timeout time.Duration) (_ gotp.Supervised, reason error) {
-	defer gotp.Recover(&reason)
+func (s *StaticSupervisor) startChild(child gotp.Supervisable) (_ gotp.Supervised, reason error) {
+	defer func() {
+		if r := recover(); r != nil {
+			reason = gotp.NewRecovered(reason, r)
+		}
+	}()
 	spec := child.ChildSpec()
-	return child.StartLink(s.server.PID(), timeout, spec.SpawnOpts...)
+	return child.StartLink(s.server.PID(), spec.SpawnOpts...)
 }
 
 func (s *StaticSupervisor) registerChild(supervisable gotp.Supervisable, running gotp.Started) {

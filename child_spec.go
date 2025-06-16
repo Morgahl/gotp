@@ -7,7 +7,7 @@ import (
 
 type Supervisable interface {
 	ChildSpec() ChildSpec
-	StartLink(PID, time.Duration, ...SpawnOpt) (Supervised, error)
+	StartLink(PID, ...SpawnOpt) (Supervised, error)
 }
 
 type Supervised interface {

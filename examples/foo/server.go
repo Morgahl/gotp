@@ -2,10 +2,16 @@ package foo
 
 import (
 	"log/slog"
+	"math/rand"
 	"time"
 
 	"github.com/Morgahl/gotp"
 	"github.com/Morgahl/gotp/server"
+)
+
+const (
+	MIN_DURATION = 10 * time.Millisecond
+	MAX_DURATION = 500 * time.Millisecond
 )
 
 var _ gotp.Supervisable = &FooServer{}
@@ -34,20 +40,28 @@ func (f *FooServer) ChildSpec() gotp.ChildSpec {
 	}
 }
 
-func (f *FooServer) Start(timeout time.Duration, opts ...gotp.SpawnOpt) (gotp.Started, error) {
-	return server.New(f).Start(timeout, opts...)
+func (f *FooServer) Start(opts ...gotp.SpawnOpt) (gotp.Started, error) {
+	return server.New(f).Start(opts...)
 }
 
-func (f *FooServer) StartLink(link gotp.PID, timeout time.Duration, opts ...gotp.SpawnOpt) (gotp.Supervised, error) {
-	return server.New(f).StartLink(link, timeout, opts...)
+func (f *FooServer) StartLink(link gotp.PID, opts ...gotp.SpawnOpt) (gotp.Supervised, error) {
+	return server.New(f).StartLink(link, opts...)
 }
 
 func (f *FooServer) Init(opts gotp.Options) (server.Continue[any], error) {
 	slog.Debug("FooServer.Init", "id", f.id, "opts", opts)
+	simulateWork()
+	slog.Debug("FooServer.Init completed", "id", f.id, "opts", opts)
 	return server.NoCont[any](), nil
 }
 
 func (f *FooServer) Terminate(reason error) error {
 	slog.Debug("FooServer.Terminate", "id", f.id, "reason", reason)
+	simulateWork()
+	slog.Debug("FooServer.Terminate completed", "id", f.id, "reason", reason)
 	return reason
+}
+
+func simulateWork() {
+	time.Sleep(time.Duration(rand.Int63n(int64(MAX_DURATION-MIN_DURATION))) + MIN_DURATION)
 }

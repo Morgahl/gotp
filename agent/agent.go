@@ -40,12 +40,12 @@ func (a *Agent[T]) ChildSpec() gotp.ChildSpec {
 	}
 }
 
-func (a *Agent[T]) Start(timeout time.Duration, opts ...gotp.SpawnOpt) (gotp.Started, error) {
-	return a.server.Start(timeout, opts...)
+func (a *Agent[T]) Start(opts ...gotp.SpawnOpt) (gotp.Started, error) {
+	return a.server.Start(opts...)
 }
 
-func (a *Agent[T]) StartLink(link gotp.PID, timeout time.Duration, opts ...gotp.SpawnOpt) (gotp.Supervised, error) {
-	return a.server.StartLink(link, timeout, opts...)
+func (a *Agent[T]) StartLink(link gotp.PID, opts ...gotp.SpawnOpt) (gotp.Supervised, error) {
+	return a.server.StartLink(link, opts...)
 }
 
 func (a *Agent[T]) Init(gotp.Options) (server.Continue[any], error) {

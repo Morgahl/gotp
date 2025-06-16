@@ -2,18 +2,12 @@ package gotp
 
 import "fmt"
 
-func Recover(err *error) {
-	if r := recover(); r != nil {
-		*err = newRecovered(*err, r)
-	}
-}
-
 type Recovered struct {
 	err error
 	r   error
 }
 
-func newRecovered(err error, r any) Recovered {
+func NewRecovered(err error, r any) Recovered {
 	if r, ok := r.(error); ok {
 		return Recovered{err: err, r: fmt.Errorf("panic: %w", r)}
 	}

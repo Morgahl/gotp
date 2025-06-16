@@ -5,7 +5,7 @@ import (
 )
 
 type Startable interface {
-	Start(timeout time.Duration, opts ...SpawnOpt) (Started, error)
+	Start(opts ...SpawnOpt) (Started, error)
 }
 
 type Started interface {
@@ -54,17 +54,19 @@ func build(link PID, opts []SpawnOpt) *Process {
 func (p *Process) run(fn RunFn) {
 	var reason error
 	defer p.cleanup(&reason)
+	defer func() {
+		if r := recover(); r != nil {
+			reason = NewRecovered(reason, r)
+		}
+	}()
 	reason = fn(p)
 }
 
 func (p *Process) cleanup(reason *error) {
-	defer func() {
-		if p.deregHandle != nil {
-			p.deregHandle()
-			p.deregHandle = nil
-		}
-	}()
-	Recover(reason)
+	if p.deregHandle != nil {
+		p.deregHandle()
+		p.deregHandle = nil
+	}
 	if !p.linked.IsZero() {
 		_ = Send(p.linked, NewExit(p.pid, *reason), 0)
 	}

@@ -42,8 +42,8 @@ func Start[
 	R gotp.Msg,
 	Cs gotp.Msg,
 	Ct gotp.Msg,
-](server Serverable[Cl, R, Cs, Ct], timeout time.Duration, opts ...gotp.SpawnOpt) (gotp.Started, error) {
-	return New(server).Start(timeout, opts...)
+](server Serverable[Cl, R, Cs, Ct], opts ...gotp.SpawnOpt) (gotp.Started, error) {
+	return New(server).Start(opts...)
 }
 
 func StartLink[
@@ -51,8 +51,8 @@ func StartLink[
 	R gotp.Msg,
 	Cs gotp.Msg,
 	Ct gotp.Msg,
-](server Serverable[Cl, R, Cs, Ct], link gotp.PID, timeout time.Duration, opts ...gotp.SpawnOpt) (gotp.Supervised, error) {
-	return New(server).StartLink(link, timeout, opts...)
+](server Serverable[Cl, R, Cs, Ct], link gotp.PID, opts ...gotp.SpawnOpt) (gotp.Supervised, error) {
+	return New(server).StartLink(link, opts...)
 }
 
 func New[
@@ -68,21 +68,13 @@ func (s *Server[Cl, R, Cs, Ct]) ChildSpec() gotp.ChildSpec {
 	return s.server.ChildSpec()
 }
 
-func (s *Server[Cl, R, Cs, Ct]) Start(timeout time.Duration, opts ...gotp.SpawnOpt) (gotp.Started, error) {
-	return s.StartLink(gotp.PIDZero(), timeout, opts...)
+func (s *Server[Cl, R, Cs, Ct]) Start(opts ...gotp.SpawnOpt) (gotp.Started, error) {
+	return s.StartLink(gotp.PIDZero(), opts...)
 }
 
-func (s *Server[Cl, R, Cs, Ct]) StartLink(link gotp.PID, timeout time.Duration, opts ...gotp.SpawnOpt) (gotp.Supervised, error) {
-	if timeout <= 0 {
-		timeout = gotp.DEFAULT_TIMEOUT
-	}
-
-	select {
-	case <-time.After(timeout):
-		return nil, gotp.NewTimeout(timeout)
-	case <-s.setupProc(link, opts...):
-		return s, nil
-	}
+func (s *Server[Cl, R, Cs, Ct]) StartLink(link gotp.PID, opts ...gotp.SpawnOpt) (gotp.Supervised, error) {
+	<-s.setupProc(link, opts...)
+	return s, nil
 }
 
 func (s *Server[Cl, R, Cs, Ct]) Call(msg Cl, timeout time.Duration) (resp R, err error) {
@@ -150,7 +142,9 @@ func (s *Server[Cl, R, Cs, Ct]) loop(sig chan struct{}) gotp.RunFn {
 		var cont Continue[Ct]
 		var resp Response[R]
 		defer func() {
-			gotp.Recover(&reason)
+			if r := recover(); r != nil {
+				reason = gotp.NewRecovered(reason, r)
+			}
 			if err := s.process.Exit(s.server.Terminate(reason), 0); err != nil {
 				slog.Error("Server.loop: failed to exit process", "error", err)
 			}

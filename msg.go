@@ -20,6 +20,9 @@ type Exit struct {
 }
 
 func NewExit(pid PID, reason error) Exit {
+	if reason == nil {
+		panic("NewExit: reason cannot be nil")
+	}
 	return Exit{pid, reason}
 }
 

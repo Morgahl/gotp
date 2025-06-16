@@ -7,17 +7,17 @@ type PID struct {
 }
 
 const (
-	ID_BITS         = 43
-	SERIAL_BITS     = 5
 	NODE_INDEX_BITS = 16
+	SERIAL_BITS     = 5
+	ID_BITS         = 43
 
-	SERIAL_SHIFT     = 0
+	NODE_INDEX_SHIFT = 0
+	SERIAL_SHIFT     = NODE_INDEX_BITS
 	ID_SHIFT         = SERIAL_SHIFT + SERIAL_BITS
-	NODE_INDEX_SHIFT = ID_SHIFT + ID_BITS
 
+	NODE_INDEX_MASK = (1 << NODE_INDEX_BITS) - 1
 	SERIAL_MASK     = (1 << SERIAL_BITS) - 1
 	ID_MASK         = (1 << ID_BITS) - 1
-	NODE_INDEX_MASK = (1 << NODE_INDEX_BITS) - 1
 )
 
 func newPID(nodeID uint16, id uint64, serial uint8) PID {
@@ -49,4 +49,13 @@ func (p PID) NodeID() uint16 {
 
 func (p PID) String() string {
 	return fmt.Sprintf("<%d.%d.%d>", p.NodeID(), p.ID(), p.Serial())
+}
+
+func ComparePID(a, b PID) int {
+	if a.raw < b.raw {
+		return -1
+	} else if a.raw > b.raw {
+		return 1
+	}
+	return 0
 }
