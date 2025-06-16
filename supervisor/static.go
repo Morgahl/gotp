@@ -165,11 +165,16 @@ shutdown:
 		child.running.Send(gotp.NewExit(pid, reason), 0)
 
 		select {
-		case msg := <-s.server.Receive():
+		case msg, ok := <-s.server.Receive():
+			if !ok {
+				slog.Error("StaticSupervisor.Terminate: mailbox closed unexpectedly")
+				panic("StaticSupervisor.Terminate: mailbox closed unexpectedly")
+			}
 			if msg, ok := msg.(gotp.Exit); ok {
 				s.deregisterChild(msg.PID())
 				continue
 			}
+			slog.Error("StaticSupervisor.Terminate: discarding message", "msg", fmt.Sprintf("%v", msg))
 		case <-timeout:
 			break shutdown
 		}
@@ -196,16 +201,7 @@ func (s *StaticSupervisor) findChildByPID(pid gotp.PID) (child child, ok bool) {
 }
 
 func (s *StaticSupervisor) startChild(child gotp.Supervisable, timeout time.Duration) (_ gotp.Supervised, reason error) {
-	defer func() {
-		if r := recover(); r != nil {
-			slog.Error("StaticSupervisor.startChild: panic", "error", r)
-			if reason == nil {
-				reason = fmt.Errorf("panic: %v", r)
-			} else {
-				reason = fmt.Errorf("reason: %w, panic: %v", reason, r)
-			}
-		}
-	}()
+	defer gotp.Recover(&reason)
 	spec := child.ChildSpec()
 	return child.StartLink(s.server.PID(), timeout, spec.SpawnOpts...)
 }

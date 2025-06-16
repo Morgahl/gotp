@@ -52,10 +52,7 @@ func initLoop(rootCtx ctx.Cancellable, app application.Application, wg *sync.Wai
 	return func(p *gotp.Process) (reason error) {
 		defer wg.Done()
 		defer func() {
-			if r := recover(); r != nil {
-				slog.ErrorContext(rootCtx, "initLoop: panic", "reason", r)
-				reason = fmt.Errorf("panic: %v", r)
-			}
+			gotp.Recover(&reason)
 			slog.InfoContext(rootCtx, "initLoop: exiting", "reason", reason)
 			// Handle shutdown of main loop
 			rootCtx.Cancel(reason)

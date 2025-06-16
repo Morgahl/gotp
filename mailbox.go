@@ -1,7 +1,6 @@
 package gotp
 
 import (
-	"sync"
 	"time"
 )
 
@@ -39,7 +38,6 @@ func WithTimeout[M any](dur time.Duration, cb func() M) ReceiveOpt[M] {
 }
 
 type Mailbox[M Msg] struct {
-	mu sync.RWMutex
 	ch chan M
 }
 
@@ -48,8 +46,6 @@ func NewMailbox[M Msg](bufferSize int) Mailbox[M] {
 }
 
 func (m *Mailbox[M]) Send(msg M, timeout time.Duration) error {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
 	if timeout > 0 {
 		select {
 		case <-time.After(timeout):
@@ -63,7 +59,5 @@ func (m *Mailbox[M]) Send(msg M, timeout time.Duration) error {
 }
 
 func (m *Mailbox[M]) Receive() <-chan M {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
 	return m.ch
 }

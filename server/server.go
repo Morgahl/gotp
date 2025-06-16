@@ -150,13 +150,7 @@ func (s *Server[Cl, R, Cs, Ct]) loop(sig chan struct{}) gotp.RunFn {
 		var cont Continue[Ct]
 		var resp Response[R]
 		defer func() {
-			if r := recover(); r != nil {
-				if reason == nil {
-					reason = fmt.Errorf("panic: %v", r)
-				} else {
-					reason = fmt.Errorf("reason: %w, panic: %v", reason, r)
-				}
-			}
+			gotp.Recover(&reason)
 			if err := s.process.Exit(s.server.Terminate(reason), 0); err != nil {
 				slog.Error("Server.loop: failed to exit process", "error", err)
 			}
@@ -174,8 +168,11 @@ func (s *Server[Cl, R, Cs, Ct]) loop(sig chan struct{}) gotp.RunFn {
 				continue
 			}
 
-			msg := <-s.process.Receive()
-
+			msg, ok := <-s.process.Receive()
+			if !ok {
+				// The Process mailbox has been closed?!?!
+				panic(fmt.Sprintf("Server.loop: Process mailbox closed unexpectedly for PID %s", s.process.PID()))
+			}
 			switch msg := msg.(type) {
 			case gotp.Exit:
 				// We have an Exit message

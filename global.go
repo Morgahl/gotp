@@ -41,7 +41,7 @@ func register(p Started) func() {
 
 func Send(pid PID, msg Msg, timeout time.Duration) error {
 	if proc, exists := registry.Get(pid); exists {
-		slog.Warn("global.Send", slog.String("pid", pid.String()), slog.String("msg", fmt.Sprintf("%v", msg)))
+		slog.Warn("global.Send", "pid", pid, "msg", fmt.Sprintf("%v", msg))
 		return proc.Send(msg, timeout)
 	}
 	return NewUnknownPID(pid)
