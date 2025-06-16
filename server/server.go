@@ -12,7 +12,6 @@ type Serverable[
 	Cl gotp.Msg,
 	R gotp.Msg,
 	Cs gotp.Msg,
-	I gotp.Msg,
 	Ct gotp.Msg,
 ] interface {
 	ChildSpec() gotp.ChildSpec
@@ -20,22 +19,20 @@ type Serverable[
 	HandleCall(Cl, gotp.PID) (Response[R], Continue[Ct], error)
 	HandleCast(Cs) (Continue[Ct], error)
 	HandleContinue(Ct) (Continue[Ct], error)
-	HandleInfo(I) (Continue[Ct], error)
-	HandleAny(gotp.Msg) (Continue[Ct], error)
+	HandleInfo(gotp.Msg) (Continue[Ct], error)
 	Terminate(error) error
 }
 
-var _ gotp.Supervisable = &Server[any, any, any, any, any]{}
-var _ gotp.Supervised = &Server[any, any, any, any, any]{}
+var _ gotp.Supervisable = &Server[any, any, any, any]{}
+var _ gotp.Supervised = &Server[any, any, any, any]{}
 
 type Server[
 	Cl gotp.Msg,
 	R gotp.Msg,
 	Cs gotp.Msg,
-	I gotp.Msg,
 	Ct gotp.Msg,
 ] struct {
-	server  Serverable[Cl, R, Cs, I, Ct]
+	server  Serverable[Cl, R, Cs, Ct]
 	process *gotp.Process
 	conf    gotp.Options
 }
@@ -44,9 +41,8 @@ func Start[
 	Cl gotp.Msg,
 	R gotp.Msg,
 	Cs gotp.Msg,
-	I gotp.Msg,
 	Ct gotp.Msg,
-](server Serverable[Cl, R, Cs, I, Ct], timeout time.Duration, opts ...gotp.SpawnOpt) (gotp.Started, error) {
+](server Serverable[Cl, R, Cs, Ct], timeout time.Duration, opts ...gotp.SpawnOpt) (gotp.Started, error) {
 	return New(server).Start(timeout, opts...)
 }
 
@@ -54,9 +50,8 @@ func StartLink[
 	Cl gotp.Msg,
 	R gotp.Msg,
 	Cs gotp.Msg,
-	I gotp.Msg,
 	Ct gotp.Msg,
-](server Serverable[Cl, R, Cs, I, Ct], link gotp.PID, timeout time.Duration, opts ...gotp.SpawnOpt) (gotp.Supervised, error) {
+](server Serverable[Cl, R, Cs, Ct], link gotp.PID, timeout time.Duration, opts ...gotp.SpawnOpt) (gotp.Supervised, error) {
 	return New(server).StartLink(link, timeout, opts...)
 }
 
@@ -64,21 +59,20 @@ func New[
 	Cl gotp.Msg,
 	R gotp.Msg,
 	Cs gotp.Msg,
-	I gotp.Msg,
 	Ct gotp.Msg,
-](server Serverable[Cl, R, Cs, I, Ct]) *Server[Cl, R, Cs, I, Ct] {
-	return &Server[Cl, R, Cs, I, Ct]{server: server}
+](server Serverable[Cl, R, Cs, Ct]) *Server[Cl, R, Cs, Ct] {
+	return &Server[Cl, R, Cs, Ct]{server: server}
 }
 
-func (s *Server[Cl, R, Cs, I, Ct]) ChildSpec() gotp.ChildSpec {
+func (s *Server[Cl, R, Cs, Ct]) ChildSpec() gotp.ChildSpec {
 	return s.server.ChildSpec()
 }
 
-func (s *Server[Cl, R, Cs, I, Ct]) Start(timeout time.Duration, opts ...gotp.SpawnOpt) (gotp.Started, error) {
+func (s *Server[Cl, R, Cs, Ct]) Start(timeout time.Duration, opts ...gotp.SpawnOpt) (gotp.Started, error) {
 	return s.StartLink(gotp.PIDZero(), timeout, opts...)
 }
 
-func (s *Server[Cl, R, Cs, I, Ct]) StartLink(link gotp.PID, timeout time.Duration, opts ...gotp.SpawnOpt) (gotp.Supervised, error) {
+func (s *Server[Cl, R, Cs, Ct]) StartLink(link gotp.PID, timeout time.Duration, opts ...gotp.SpawnOpt) (gotp.Supervised, error) {
 	if timeout <= 0 {
 		timeout = gotp.DEFAULT_TIMEOUT
 	}
@@ -91,7 +85,7 @@ func (s *Server[Cl, R, Cs, I, Ct]) StartLink(link gotp.PID, timeout time.Duratio
 	}
 }
 
-func (s *Server[Cl, R, Cs, I, Ct]) Call(msg Cl, timeout time.Duration) (resp R, err error) {
+func (s *Server[Cl, R, Cs, Ct]) Call(msg Cl, timeout time.Duration) (resp R, err error) {
 	call := Call[Cl, R](msg, s.process.PID())
 	if err = s.process.Send(call, timeout); err != nil {
 		return resp, err
@@ -110,26 +104,26 @@ func (s *Server[Cl, R, Cs, I, Ct]) Call(msg Cl, timeout time.Duration) (resp R, 
 	}
 }
 
-func (s *Server[Cl, R, Cs, I, Ct]) Cast(msg Cs, timeout time.Duration) error {
+func (s *Server[Cl, R, Cs, Ct]) Cast(msg Cs, timeout time.Duration) error {
 	return s.process.Send(Cast(msg), timeout)
 }
 
-func (s *Server[Cl, R, Cs, I, Ct]) Info(msg I, timeout time.Duration) error {
-	return s.process.Send(newInfoMsg(msg), timeout)
+func (s *Server[Cl, R, Cs, Ct]) Info(msg gotp.Msg, timeout time.Duration) error {
+	return s.process.Send(msg, timeout)
 }
 
-func (s *Server[Cl, R, Cs, I, Ct]) PID() gotp.PID {
+func (s *Server[Cl, R, Cs, Ct]) PID() gotp.PID {
 	return s.process.PID()
 }
 
-func (s *Server[Cl, R, Cs, I, Ct]) Send(msg gotp.Msg, timeout time.Duration) error {
+func (s *Server[Cl, R, Cs, Ct]) Send(msg gotp.Msg, timeout time.Duration) error {
 	if s.process == nil {
 		return gotp.NewNotStarted()
 	}
 	return s.process.Send(msg, timeout)
 }
 
-func (s *Server[Cl, R, Cs, I, Ct]) SendAfter(msg gotp.Msg, delay time.Duration) (*time.Timer, error) {
+func (s *Server[Cl, R, Cs, Ct]) SendAfter(msg gotp.Msg, delay time.Duration) (*time.Timer, error) {
 	if s.process == nil {
 		slog.Error("Server.SendAfter: Server not started")
 		return nil, gotp.NewNotStarted()
@@ -137,7 +131,7 @@ func (s *Server[Cl, R, Cs, I, Ct]) SendAfter(msg gotp.Msg, delay time.Duration) 
 	return s.process.SendAfter(msg, delay)
 }
 
-func (s *Server[Cl, R, Cs, I, Ct]) Receive() <-chan gotp.Msg {
+func (s *Server[Cl, R, Cs, Ct]) Receive() <-chan gotp.Msg {
 	if s.process == nil {
 		slog.Error("Server.Receive: Server not started")
 		return nil
@@ -145,15 +139,16 @@ func (s *Server[Cl, R, Cs, I, Ct]) Receive() <-chan gotp.Msg {
 	return s.process.Receive()
 }
 
-func (s *Server[Cl, R, Cs, I, Ct]) setupProc(link gotp.PID, opts ...gotp.SpawnOpt) <-chan struct{} {
+func (s *Server[Cl, R, Cs, Ct]) setupProc(link gotp.PID, opts ...gotp.SpawnOpt) <-chan struct{} {
 	sig := make(chan struct{})
 	s.process = gotp.SpawnLink(s.loop(sig), link, opts...)
 	return sig
 }
 
-func (s *Server[Cl, R, Cs, I, Ct]) loop(sig chan struct{}) gotp.RunFn {
+func (s *Server[Cl, R, Cs, Ct]) loop(sig chan struct{}) gotp.RunFn {
 	return func(p *gotp.Process) (reason error) {
 		var cont Continue[Ct]
+		var resp Response[R]
 		defer func() {
 			if r := recover(); r != nil {
 				if reason == nil {
@@ -179,43 +174,40 @@ func (s *Server[Cl, R, Cs, I, Ct]) loop(sig chan struct{}) gotp.RunFn {
 				continue
 			}
 
-			for msg := range s.process.Receive() {
-				switch msg := msg.(type) {
-				case call[Cl, R]:
-					// We have a synchronous call and a chan to close after conditionally sending a
-					// response back to the caller.
-					var resp Response[R]
-					switch resp, cont, reason = s.server.HandleCall(msg.req, msg.from); resp.atom {
-					case NO_REPLY:
-						// We have been asked to not send a response back to the caller so just close
-						// the resp chan.
-						close(msg.resp)
+			msg := <-s.process.Receive()
 
-					case REPLY:
-						// We have been asked to send a response back to the caller.
-						msg.resp <- resp.resp
-						close(msg.resp)
-					}
-
-				case cast[Cs]:
-					// We have an asynchronous call
-					cont, reason = s.server.HandleCast(msg.cast)
-
-				case infoMsg[I]:
-					// We have an Info message
-					cont, reason = s.server.HandleInfo(msg.info)
-
-				case gotp.Exit:
-					// We have an Exit message
-					if msg.PID() == s.process.PID() {
-						// We have been asked to terminate
-						return msg.Unwrap()
-					}
-
-				default:
-					// We have an Info or some other message that we don't know how to handle.
-					cont, reason = s.server.HandleAny(msg)
+			switch msg := msg.(type) {
+			case gotp.Exit:
+				// We have an Exit message
+				if msg.PID() == s.process.PID() {
+					// We have been asked to terminate
+					return msg.Unwrap()
 				}
+
+				cont, reason = s.server.HandleInfo(msg)
+
+			case call[Cl, R]:
+				// We have a synchronous call and a chan to close after conditionally sending a
+				// response back to the caller.
+				switch resp, cont, reason = s.server.HandleCall(msg.req, msg.from); resp.atom {
+				case NO_REPLY:
+					// We have been asked to not send a response back to the caller so just close
+					// the resp chan.
+					close(msg.resp)
+
+				case REPLY:
+					// We have been asked to send a response back to the caller.
+					msg.resp <- resp.resp
+					close(msg.resp)
+				}
+
+			case cast[Cs]:
+				// We have an asynchronous call
+				cont, reason = s.server.HandleCast(msg.cast)
+
+			default:
+				// We have an Info or some other message that we don't know how to handle.
+				cont, reason = s.server.HandleInfo(msg)
 			}
 		}
 	}

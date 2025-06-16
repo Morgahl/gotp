@@ -11,15 +11,15 @@ import (
 
 var _ gotp.Supervisable = &StaticSupervisor{}
 var _ gotp.Supervised = &StaticSupervisor{}
-var _ server.Serverable[gotp.Msg, gotp.Msg, gotp.Msg, gotp.Msg, gotp.Msg] = &StaticSupervisor{}
+var _ server.Serverable[gotp.Msg, gotp.Msg, gotp.Msg, gotp.Msg] = &StaticSupervisor{}
 
 type StaticSupervisor struct {
-	sup        Supervisor
-	flags      Flags
-	specs      []gotp.Supervisable
-	childNames map[string]gotp.PID
-	children   map[gotp.PID]child
-	server     *server.Server[gotp.Msg, gotp.Msg, gotp.Msg, gotp.Msg, gotp.Msg]
+	sup      Supervisor
+	flags    Flags
+	specs    []gotp.Supervisable
+	childIDs map[string]gotp.PID
+	children map[gotp.PID]child
+	server   *server.Server[gotp.Msg, gotp.Msg, gotp.Msg, gotp.Msg]
 }
 
 func Static(sup Supervisor) *StaticSupervisor {
@@ -84,7 +84,7 @@ func (s *StaticSupervisor) Init(opts gotp.Options) (cont server.Continue[gotp.Ms
 	}
 	s.flags = flags.ApplyDefaults()
 	s.specs = children
-	s.childNames = make(map[string]gotp.PID, len(children))
+	s.childIDs = make(map[string]gotp.PID, len(children))
 	s.children = make(map[gotp.PID]child, len(children))
 
 	for _, child := range s.specs {
@@ -158,11 +158,6 @@ func (s *StaticSupervisor) HandleInfo(info gotp.Msg) (cont server.Continue[gotp.
 		return server.NoCont[gotp.Msg](), nil
 	}
 }
-
-func (s *StaticSupervisor) HandleAny(msg gotp.Msg) (cont server.Continue[gotp.Msg], err error) {
-	return server.NoCont[gotp.Msg](), nil
-}
-
 func (s *StaticSupervisor) Terminate(reason error) (newReson error) {
 	timeout := time.After(s.flags.Shutdown)
 shutdown:
@@ -186,7 +181,7 @@ func (s *StaticSupervisor) findChild(child gotp.Supervisable) (gotp.PID, bool) {
 	if child == nil {
 		return gotp.PIDZero(), false
 	}
-	if pid, ok := s.childNames[child.ChildSpec().Name]; ok {
+	if pid, ok := s.childIDs[child.ChildSpec().ID]; ok {
 		return pid, true
 	}
 	return gotp.PIDZero(), false
@@ -218,15 +213,15 @@ func (s *StaticSupervisor) startChild(child gotp.Supervisable, timeout time.Dura
 func (s *StaticSupervisor) registerChild(supervisable gotp.Supervisable, running gotp.Started) {
 	pid := running.PID()
 	s.children[pid] = child{supervisable: supervisable, running: running}
-	if name := supervisable.ChildSpec().Name; name != "" {
-		s.childNames[name] = pid
+	if id := supervisable.ChildSpec().ID; id != "" {
+		s.childIDs[id] = pid
 	}
 }
 
 func (s *StaticSupervisor) deregisterChild(pid gotp.PID) (deleted bool) {
 	if child, ok := s.children[pid]; ok {
-		if name := child.supervisable.ChildSpec().Name; name != "" {
-			delete(s.childNames, name)
+		if id := child.supervisable.ChildSpec().ID; id != "" {
+			delete(s.childIDs, id)
 		}
 		delete(s.children, pid)
 		deleted = true

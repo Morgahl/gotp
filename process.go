@@ -26,7 +26,6 @@ type Process struct {
 	linked PID
 
 	mailbox     Mailbox[Msg]
-	reason      error
 	deregHandle func()
 }
 
@@ -61,7 +60,8 @@ func (p *Process) run(fn RunFn) {
 	reason = fn(p)
 }
 
-func (p *Process) cleanup(reason *error, timeout time.Duration) error {
+func (p *Process) cleanup(rsn *error, timeout time.Duration) error {
+	reason := *rsn
 	p.mailbox.mu.Lock()
 	defer p.mailbox.mu.Unlock()
 
@@ -76,26 +76,24 @@ func (p *Process) cleanup(reason *error, timeout time.Duration) error {
 	if r := recover(); r != nil {
 		slog.Error("Process panicked", "pid", p.pid, "reason", r)
 		if reason != nil {
-			p.reason = fmt.Errorf("reason: %v, panic: %v", *reason, r)
+			reason = fmt.Errorf("reason: %v, panic: %v", reason, r)
 		} else {
-			p.reason = fmt.Errorf("panic: %v", r)
+			reason = fmt.Errorf("panic: %v", r)
 		}
-	} else if *reason != nil {
-		p.reason = *reason
 	}
 
 	if !p.linked.IsZero() {
-		return Send(p.linked, NewExit(p.pid, p.reason), timeout)
+		return Send(p.linked, NewExit(p.pid, reason), timeout)
 	}
 	return nil
 }
 
 func (p *Process) Exit(reason error, timeout time.Duration) error {
-	return p.cleanup(&reason, timeout)
+	return p.mailbox.Send(NewExit(p.pid, reason), timeout)
 }
 
 func (p *Process) Exited() bool {
-	return p.reason != nil
+	return p.deregHandle == nil
 }
 
 func (p *Process) PID() PID {
@@ -117,11 +115,4 @@ func (p *Process) SendAfter(msg Msg, after time.Duration) (*time.Timer, error) {
 
 func (p *Process) Receive() <-chan Msg {
 	return p.mailbox.Receive()
-}
-
-func (p *Process) Reason() error {
-	if p.reason != nil {
-		return p.reason
-	}
-	return fmt.Errorf("process %s not exited", p.pid)
 }

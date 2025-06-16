@@ -59,11 +59,3 @@ type cast[M gotp.Msg] struct {
 func Cast[M gotp.Msg](req M) cast[M] {
 	return cast[M]{cast: req}
 }
-
-type infoMsg[M gotp.Msg] struct {
-	info M
-}
-
-func newInfoMsg[M gotp.Msg](info M) infoMsg[M] {
-	return infoMsg[M]{info: info}
-}

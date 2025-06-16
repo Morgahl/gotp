@@ -67,13 +67,13 @@ func (f Flags) String() string {
 }
 
 func (f Flags) ApplyDefaults() Flags {
-	if f.MaxRestarts == 0 {
+	if f.MaxRestarts <= 0 {
 		f.MaxRestarts = 3
 	}
-	if f.ResetPeriod == 0 {
+	if f.ResetPeriod <= 0 {
 		f.ResetPeriod = 5 * time.Second
 	}
-	if f.Shutdown == 0 {
+	if f.Shutdown <= 0 {
 		f.Shutdown = 30 * time.Second
 	}
 	return f

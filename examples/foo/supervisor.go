@@ -11,14 +11,14 @@ import (
 var _ supervisor.Supervisor = &FooSupervisor{}
 
 type FooSupervisor struct {
-	name  string
+	id    string
 	flags supervisor.Flags
 	specs []gotp.Supervisable
 }
 
-func NewFooSupervisor(name string, flags supervisor.Flags, specs ...gotp.Supervisable) gotp.Supervisable {
+func NewFooSupervisor(id string, flags supervisor.Flags, specs ...gotp.Supervisable) gotp.Supervisable {
 	sup := &FooSupervisor{
-		name:  name,
+		id:    id,
 		flags: flags,
 		specs: specs,
 	}
@@ -27,7 +27,7 @@ func NewFooSupervisor(name string, flags supervisor.Flags, specs ...gotp.Supervi
 
 func (f *FooSupervisor) ChildSpec() gotp.ChildSpec {
 	return gotp.ChildSpec{
-		Name:        f.name,
+		ID:          f.id,
 		Restart:     gotp.PERMANENT,
 		Shutdown:    30 * time.Second,
 		Type:        gotp.SUPERVISOR,
@@ -36,6 +36,6 @@ func (f *FooSupervisor) ChildSpec() gotp.ChildSpec {
 }
 
 func (f *FooSupervisor) Init(opts gotp.Options) (supervisor.Flags, []gotp.Supervisable, error) {
-	slog.Debug("FooSupervisor.Init", "name", f.name, "specs", len(f.specs), "opts", opts)
+	slog.Debug("FooSupervisor.Init", "id", f.id, "specs", len(f.specs), "opts", opts)
 	return f.flags, f.specs, nil
 }

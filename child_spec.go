@@ -16,7 +16,7 @@ type Supervised interface {
 }
 
 type ChildSpec struct {
-	Name string
+	ID string
 	Restart
 	Shutdown time.Duration
 	Type
@@ -25,7 +25,7 @@ type ChildSpec struct {
 }
 
 func (c ChildSpec) String() string {
-	return fmt.Sprintf("ChildSpec{Name: %s, Restart: %s, Shutdown: %s, Type: %s, Significant: %t}", c.Name, c.Restart, c.Shutdown, c.Type, c.Significant)
+	return fmt.Sprintf("ChildSpec{ID: %s, Restart: %s, Shutdown: %s, Type: %s, Significant: %t}", c.ID, c.Restart, c.Shutdown, c.Type, c.Significant)
 }
 
 type Restart uint8

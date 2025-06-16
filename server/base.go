@@ -20,11 +20,7 @@ func (DefaultHandlers[Ct]) HandleContinue(cont Ct) (Continue[Ct], error) {
 	return NoCont[Ct](), nil
 }
 
-func (DefaultHandlers[Ct]) HandleInfo(info any) (Continue[Ct], error) {
-	return NoCont[Ct](), nil
-}
-
-func (DefaultHandlers[Ct]) HandleAny(msg gotp.Msg) (Continue[Ct], error) {
+func (DefaultHandlers[Ct]) HandleInfo(info gotp.Msg) (Continue[Ct], error) {
 	return NoCont[Ct](), nil
 }
 
