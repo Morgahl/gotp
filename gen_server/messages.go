@@ -1,4 +1,4 @@
-package server
+package gen_server
 
 import (
 	"github.com/Morgahl/gotp"
@@ -62,10 +62,7 @@ type call[M gotp.Msg, R gotp.Msg] struct {
 	resp chan R
 }
 
-// TODO: Convert this from Call creator to the Call function that handles calling the server if it is a server or by pid
-// TODO: to send the call message and handle the respnose waitng AS WELL AS THE close of the chanle without response
-// TODO: indicating NO_REPLY.
-func Call[M gotp.Msg, R gotp.Msg](req M, from gotp.PID) call[M, R] {
+func CallMsg[M gotp.Msg, R gotp.Msg](req M, from gotp.PID) call[M, R] {
 	return call[M, R]{req: req, from: from, resp: make(chan R, 1)}
 }
 
@@ -73,8 +70,6 @@ type cast[M gotp.Msg] struct {
 	cast M
 }
 
-// TODO: Convert this from Cast creator to the Cast function that handles calling the server if it is a server or by pid
-// TODO: to send the cast message and do not wait for the response
-func Cast[M gotp.Msg](req M) cast[M] {
+func CastMsg[M gotp.Msg](req M) cast[M] {
 	return cast[M]{cast: req}
 }

@@ -2,14 +2,17 @@ package gotp
 
 import (
 	"fmt"
+	"log/slog"
 	"time"
+
+	"github.com/Morgahl/gotp/debug"
 )
 
 type Msg interface{}
 
 type MsgMetadata interface {
 	Msg
-	Metadata() map[string]any
+	Metadata() map[Atom]any
 }
 
 var _ error = Exit{}
@@ -21,7 +24,7 @@ type Exit struct {
 
 func NewExit(pid PID, reason error) Exit {
 	if reason == nil {
-		panic("NewExit: reason cannot be nil")
+		debug.Throw("NewExit: reason cannot be nil")
 	}
 	return Exit{pid, reason}
 }
@@ -31,7 +34,7 @@ func (e Exit) PID() PID {
 }
 
 func (e Exit) Error() string {
-	return fmt.Sprintf("Exit{%v, reason: %v}", e.pid, e.reason)
+	return fmt.Sprintf("Exit{%s, reason: %s}", e.pid, e.reason)
 }
 
 func (e Exit) Is(target error) bool {
@@ -42,6 +45,13 @@ func (e Exit) Unwrap() error {
 	return e.reason
 }
 
+func (e Exit) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.Any("pid", e.pid),
+		slog.Any("reason", e.reason),
+	)
+}
+
 var _ error = Timeout{}
 
 type Timeout struct {
@@ -49,11 +59,11 @@ type Timeout struct {
 }
 
 func NewTimeout(dur time.Duration) Timeout {
-	return Timeout{reason: fmt.Errorf("timeout after %v", dur)}
+	return Timeout{reason: fmt.Errorf("timeout after %s", dur)}
 }
 
 func (t Timeout) Error() string {
-	return fmt.Sprintf("Timeout{reason: %v}", t.reason)
+	return fmt.Sprintf("Timeout{reason: %s}", t.reason)
 }
 
 type Kill struct{}

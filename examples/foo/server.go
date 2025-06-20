@@ -6,28 +6,31 @@ import (
 	"time"
 
 	"github.com/Morgahl/gotp"
-	"github.com/Morgahl/gotp/server"
+	"github.com/Morgahl/gotp/gen_server"
 )
 
 const (
 	MIN_DURATION = 10 * time.Millisecond
-	MAX_DURATION = 500 * time.Millisecond
+	MID_DURATION = 50 * time.Millisecond
+	MAX_DURATION = 200 * time.Millisecond
 )
 
 var _ gotp.Supervisable = &FooServer{}
-var _ server.Serverable[any, any, any, any] = &FooServer{}
+var _ gen_server.Serverable[gotp.Options, any, any, any, any] = &FooServer{}
 
 type FooServer struct {
-	id string
+	id   gotp.Atom
+	work time.Duration
 
-	// Embed the server.DefaultHandlers to provide default implementations
-	// for the server.Serverable interface methods.
-	server.DefaultHandlers[any]
+	// Embed the gen_server.DefaultHandlers to provide default implementations
+	// for the gen_server.Serverable interface methods.
+	gen_server.OptionalCallbacks[any, any]
 }
 
-func NewFooServer(id string) *FooServer {
+func NewFooServer(id gotp.Atom) *FooServer {
 	return &FooServer{
-		id: id,
+		id:   id,
+		work: assessWork(),
 	}
 }
 
@@ -41,27 +44,41 @@ func (f *FooServer) ChildSpec() gotp.ChildSpec {
 }
 
 func (f *FooServer) Start(opts ...gotp.SpawnOpt) (gotp.Started, error) {
-	return server.New(f).Start(opts...)
+	return gen_server.New(f, nil).Start(opts...)
 }
 
 func (f *FooServer) StartLink(link gotp.PID, opts ...gotp.SpawnOpt) (gotp.Supervised, error) {
-	return server.New(f).StartLink(link, opts...)
+	return gen_server.New(f, nil).StartLink(link, opts...)
 }
 
-func (f *FooServer) Init(opts gotp.Options) (server.Continue[any], error) {
-	slog.Debug("FooServer.Init", "id", f.id, "opts", opts)
-	simulateWork()
-	slog.Debug("FooServer.Init completed", "id", f.id, "opts", opts)
-	return server.NoCont[any](), nil
+func (f *FooServer) Init(opts gotp.Options) (gen_server.Continue[any], error) {
+	start := time.Now()
+	simulateWork(f.work)
+	slog.Info("FooServer.Init", "id", f.id, "opts", opts, "took", time.Since(start))
+	return gen_server.NoCont[any](), nil
 }
 
 func (f *FooServer) Terminate(reason error) error {
-	slog.Debug("FooServer.Terminate", "id", f.id, "reason", reason)
-	simulateWork()
-	slog.Debug("FooServer.Terminate completed", "id", f.id, "reason", reason)
+	start := time.Now()
+	simulateWork(f.work)
+	slog.Info("FooServer.Terminate", "id", f.id, "reason", reason, "took", time.Since(start))
 	return reason
 }
 
-func simulateWork() {
-	time.Sleep(time.Duration(rand.Int63n(int64(MAX_DURATION-MIN_DURATION))) + MIN_DURATION)
+func assessWork() time.Duration {
+	switch n := rand.Float64(); {
+	case n <= 0.3:
+		return time.Duration(rand.Int63n(int64(MIN_DURATION)))
+	case n <= 0.7:
+		return time.Duration(rand.Int63n(int64(MID_DURATION-MIN_DURATION))) + MIN_DURATION
+	case n <= 0.9:
+		return time.Duration(rand.Int63n(int64(MAX_DURATION-MID_DURATION))) + MID_DURATION
+	default:
+		return time.Duration(rand.Int63n(int64(MAX_DURATION))) + MID_DURATION
+	}
+}
+
+func simulateWork(work time.Duration) {
+	// halfWork := work / 2
+	// time.Sleep(time.Duration(rand.Int63n(int64(work-halfWork))) + halfWork)
 }

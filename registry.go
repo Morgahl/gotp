@@ -21,19 +21,19 @@ func New[ID comparable]() *Registry[ID] {
 
 func (r *Registry[ID]) Get(id ID) (p Started, exists bool) {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
 	p, exists = r.procs[id]
+	r.mu.RUnlock()
 	return
 }
 
 func (r *Registry[ID]) Put(id ID, p Started) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	r.procs[id] = p
+	r.mu.Unlock()
 }
 
 func (r *Registry[ID]) Delete(id ID) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	delete(r.procs, id)
+	r.mu.Unlock()
 }

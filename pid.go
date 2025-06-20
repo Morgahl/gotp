@@ -1,6 +1,9 @@
 package gotp
 
-import "fmt"
+import (
+	"fmt"
+	"log/slog"
+)
 
 type PID struct {
 	raw uint64
@@ -11,9 +14,9 @@ const (
 	SERIAL_BITS     = 5
 	ID_BITS         = 43
 
-	NODE_INDEX_SHIFT = 0
-	SERIAL_SHIFT     = NODE_INDEX_BITS
-	ID_SHIFT         = SERIAL_SHIFT + SERIAL_BITS
+	NODE_INDEX_SHIFT = ID_BITS + SERIAL_BITS
+	SERIAL_SHIFT     = ID_BITS
+	ID_SHIFT         = 0
 
 	NODE_INDEX_MASK = (1 << NODE_INDEX_BITS) - 1
 	SERIAL_MASK     = (1 << SERIAL_BITS) - 1
@@ -49,6 +52,10 @@ func (p PID) NodeID() uint16 {
 
 func (p PID) String() string {
 	return fmt.Sprintf("<%d.%d.%d>", p.NodeID(), p.ID(), p.Serial())
+}
+
+func (p PID) LogValue() slog.Value {
+	return slog.StringValue(p.String())
 }
 
 func ComparePID(a, b PID) int {

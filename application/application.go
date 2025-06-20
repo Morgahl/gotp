@@ -7,7 +7,7 @@ import (
 )
 
 type Application interface {
-	Name() string
+	Name() gotp.Atom
 	Version() Version
 	Start(StartType) (gotp.Supervisable, error)
 }

@@ -5,12 +5,13 @@ import (
 
 	"github.com/Morgahl/gotp"
 	"github.com/Morgahl/gotp/application"
+	"github.com/Morgahl/gotp/debug"
 	"github.com/Morgahl/gotp/supervisor"
 )
 
 type FooApplication struct{}
 
-func (FooApplication) Name() string {
+func (FooApplication) Name() gotp.Atom {
 	return "FooApplication"
 }
 
@@ -62,5 +63,5 @@ func (FooApplication) Start(st application.StartType) (gotp.Supervisable, error)
 	} else if _, ok := st.IsTakeover(); ok {
 		return nil, errors.New("takeover not supported in FooApplication")
 	}
-	panic("unknown start type: " + st.String())
+	panic(debug.ThrowF("unknown start type: %s", st))
 }

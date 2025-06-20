@@ -2,6 +2,8 @@ package gotp
 
 import (
 	"time"
+
+	"github.com/Morgahl/gotp/debug"
 )
 
 type Startable interface {
@@ -53,23 +55,19 @@ func build(link PID, opts []SpawnOpt) *Process {
 
 func (p *Process) run(fn RunFn) {
 	var reason error
-	defer p.cleanup(&reason)
 	defer func() {
 		if r := recover(); r != nil {
-			reason = NewRecovered(reason, r)
+			reason = debug.Catch(reason, r)
+		}
+		if p.deregHandle != nil {
+			p.deregHandle()
+			p.deregHandle = nil
+		}
+		if !p.linked.IsZero() {
+			_ = Send(p.linked, NewExit(p.pid, reason), 0)
 		}
 	}()
 	reason = fn(p)
-}
-
-func (p *Process) cleanup(reason *error) {
-	if p.deregHandle != nil {
-		p.deregHandle()
-		p.deregHandle = nil
-	}
-	if !p.linked.IsZero() {
-		_ = Send(p.linked, NewExit(p.pid, *reason), 0)
-	}
 }
 
 func (p *Process) Exit(reason error, timeout time.Duration) error {

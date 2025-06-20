@@ -7,9 +7,9 @@ import (
 	"github.com/Morgahl/gotp"
 )
 
-type Supervisor interface {
+type Supervisor[I any] interface {
 	ChildSpec() gotp.ChildSpec
-	Init(gotp.Options) (Flags, []gotp.Supervisable, error)
+	Init(I) (Flags, []gotp.Supervisable, error)
 }
 
 type Strategy uint8

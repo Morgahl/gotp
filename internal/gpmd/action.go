@@ -94,5 +94,5 @@ func (r Result[R]) String() string {
 		return fmt.Sprintf("Result{OK:%s}", ok)
 	}
 
-	return fmt.Sprintf("Result{OK:%#v}", r.OK)
+	return fmt.Sprintf("Result{OK:%+v}", r.OK)
 }

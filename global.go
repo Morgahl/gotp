@@ -41,10 +41,18 @@ func register(p Started) func() {
 
 func Send(pid PID, msg Msg, timeout time.Duration) error {
 	if proc, exists := registry.Get(pid); exists {
-		slog.Warn("global.Send", "pid", pid, "msg", fmt.Sprintf("%v", msg))
+		slog.Debug("global.Send", slog.Any("pid", pid), slog.Any("msg", fmt.Sprintf("%+v", msg)))
 		return proc.Send(msg, timeout)
 	}
 	return NewUnknownPID(pid)
+}
+
+func SendAfter(pid PID, msg Msg, after time.Duration) (*time.Timer, error) {
+	if proc, exists := registry.Get(pid); exists {
+		slog.Debug("global.SendAfter", slog.Any("pid", pid), slog.Any("msg", fmt.Sprintf("%+v", msg)), slog.Duration("after", after))
+		return proc.SendAfter(msg, after)
+	}
+	return nil, NewUnknownPID(pid)
 }
 
 type UnknownPID struct {

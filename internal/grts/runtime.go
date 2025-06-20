@@ -4,52 +4,28 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 	"sync"
 	"time"
 
 	"github.com/Morgahl/gotp"
 	"github.com/Morgahl/gotp/application"
+	"github.com/Morgahl/gotp/debug"
 	"github.com/Morgahl/gotp/internal/ctx"
-	"github.com/Morgahl/gotp/logger"
 )
-
-const (
-	FORCE_EXIT_AFTER = 30 * time.Second
-)
-
-func Setup() {
-	opts := slog.HandlerOptions{AddSource: true}
-
-	switch os.Getenv("LOG_LEVEL") {
-	case "debug", "DEBUG":
-		opts.Level = slog.LevelDebug
-	case "info", "INFO":
-		opts.Level = slog.LevelInfo
-	case "warn", "WARN":
-		opts.Level = slog.LevelWarn
-	case "error", "ERROR":
-		opts.Level = slog.LevelError
-	default:
-		opts.Level = slog.LevelInfo
-	}
-
-	slog.SetDefault(slog.New(logger.TextHandler(os.Stdout, &opts)))
-}
 
 func Run(app application.Application) (err error) {
 	ctx := ctx.Root()
-	defer ctx.Cancel(fmt.Errorf("main: exiting"))
+	defer ctx.Cancel(fmt.Errorf("grts.Run: exiting"))
 
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
 	root := gotp.Spawn(initLoop(ctx, app, wg))
-	slog.InfoContext(ctx, "root process started", "pid", root.PID())
+	slog.DebugContext(ctx, "grts.Run: root process started", slog.Any("pid", root.PID()))
 
 	<-ctx.Done()
 	wg.Wait()
 
-	slog.Info("main: exiting")
+	slog.Info("grts.Run: exiting")
 	return context.Cause(ctx)
 }
 
@@ -58,7 +34,7 @@ func initLoop(rootCtx ctx.Cancellable, app application.Application, wg *sync.Wai
 		defer wg.Done()
 		defer func() {
 			if r := recover(); r != nil {
-				reason = gotp.NewRecovered(reason, r)
+				reason = debug.Catch(reason, r)
 			}
 			rootCtx.Cancel(reason)
 		}()
@@ -67,13 +43,13 @@ func initLoop(rootCtx ctx.Cancellable, app application.Application, wg *sync.Wai
 		var sup gotp.Supervised
 		startUp := time.Now()
 		if root, reason = app.Start(application.Normal()); reason != nil {
-			slog.ErrorContext(rootCtx, "initLoop: failed to start application", "error", reason)
+			slog.ErrorContext(rootCtx, "grts.initLoop: failed to start application", slog.String("error", reason.Error()))
 			return fmt.Errorf("failed to start application: %w", reason)
 		} else if sup, reason = root.StartLink(p.PID()); reason != nil {
-			slog.ErrorContext(rootCtx, "initLoop: failed to start supervision tree", "error", reason)
+			slog.ErrorContext(rootCtx, "grts.initLoop: failed to start supervision tree", slog.String("error", reason.Error()))
 			return reason
 		}
-		slog.InfoContext(rootCtx, "initLoop: supervision tree started", "id", sup.PID(), "took", time.Since(startUp))
+		slog.DebugContext(rootCtx, "grts.initLoop: supervision tree started", slog.Any("id", sup.PID()), slog.Duration("took", time.Since(startUp)))
 
 		for {
 			select {
@@ -82,18 +58,18 @@ func initLoop(rootCtx ctx.Cancellable, app application.Application, wg *sync.Wai
 				goto EXIT
 			case msg, ok := <-p.Receive():
 				if !ok {
-					slog.InfoContext(rootCtx, "initLoop: process channel closed")
+					slog.DebugContext(rootCtx, "grts.initLoop: process channel closed")
 					reason = fmt.Errorf("process channel closed unexpectedly")
 					goto EXIT
 				}
-				slog.InfoContext(rootCtx, "initLoop: received message", "msg", msg)
+				slog.DebugContext(rootCtx, "grts.initLoop: received message", slog.String("msg", fmt.Sprintf("%+v", msg)))
 				switch msg := msg.(type) {
 				case gotp.Exit:
-					slog.InfoContext(rootCtx, "initLoop: received exit", "msg", msg)
+					slog.DebugContext(rootCtx, "grts.initLoop: received exit", slog.String("msg", fmt.Sprintf("%+v", msg)))
 					reason = msg.Unwrap()
 					goto EXIT
 				default:
-					slog.WarnContext(rootCtx, "initLoop: ignoring message", "msg", msg)
+					slog.WarnContext(rootCtx, "grts.initLoop: ignoring message", slog.String("msg", fmt.Sprintf("%+v", msg)))
 				}
 			}
 		}
@@ -101,19 +77,18 @@ func initLoop(rootCtx ctx.Cancellable, app application.Application, wg *sync.Wai
 	EXIT:
 		shutDown := time.Now()
 		sup.Send(gotp.NewExit(sup.PID(), reason), 0)
-		slog.InfoContext(rootCtx, "initLoop: waiting for messages")
+		slog.DebugContext(rootCtx, "grts.initLoop: waiting for exit messages", slog.Duration("took", time.Since(shutDown)))
 		for msg := range p.Receive() {
-			slog.InfoContext(rootCtx, "initLoop: received message", "msg", msg)
 			switch msg := msg.(type) {
 			case gotp.Exit:
-				slog.InfoContext(rootCtx, "initLoop: received exit", "msg", msg, "took", time.Since(shutDown))
+				slog.DebugContext(rootCtx, "grts.initLoop: received exit", slog.String("msg", fmt.Sprintf("%+v", msg)), slog.Duration("took", time.Since(shutDown)))
 				return msg.Unwrap()
 			default:
-				slog.WarnContext(rootCtx, "initLoop: ignoring message", "msg", msg, "took", time.Since(shutDown))
+				slog.WarnContext(rootCtx, "grts.initLoop: ignoring message", slog.String("msg", fmt.Sprintf("%+v", msg)), slog.Duration("took", time.Since(shutDown)))
 			}
 		}
 
-		slog.InfoContext(rootCtx, "initLoop: exiting", "took", time.Since(shutDown))
+		slog.InfoContext(rootCtx, "grts.initLoop: exiting", slog.Duration("took", time.Since(shutDown)))
 		return reason
 	}
 }

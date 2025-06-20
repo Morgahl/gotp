@@ -2,6 +2,7 @@ package gotp
 
 import (
 	"fmt"
+	"log/slog"
 	"time"
 )
 
@@ -16,7 +17,7 @@ type Supervised interface {
 }
 
 type ChildSpec struct {
-	ID string
+	ID Atom
 	Restart
 	Shutdown time.Duration
 	Type
@@ -25,7 +26,19 @@ type ChildSpec struct {
 }
 
 func (c ChildSpec) String() string {
-	return fmt.Sprintf("ChildSpec{ID: %s, Restart: %s, Shutdown: %s, Type: %s, Significant: %t}", c.ID, c.Restart, c.Shutdown, c.Type, c.Significant)
+	return fmt.Sprintf(
+		"ChildSpec{ID: %s, Restart: %s, Shutdown: %s, Type: %s, Significant: %t, SpawnOpts: %d}",
+		c.ID, c.Restart, c.Shutdown, c.Type, c.Significant, len(c.SpawnOpts))
+}
+
+func (c ChildSpec) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.String("id", string(c.ID)),
+		slog.Any("restart", c.Restart),
+		slog.Duration("shutdown", c.Shutdown),
+		slog.Any("type", c.Type),
+		slog.Bool("significant", c.Significant),
+		slog.Int("spawnOpts", len(c.SpawnOpts)))
 }
 
 type Restart uint8
@@ -49,6 +62,10 @@ func (r Restart) String() string {
 	}
 }
 
+func (r Restart) LogValue() slog.Value {
+	return slog.StringValue(r.String())
+}
+
 type Type uint8
 
 const (
@@ -67,6 +84,10 @@ func (t Type) String() string {
 	}
 }
 
+func (t Type) LogValue() slog.Value {
+	return slog.StringValue(t.String())
+}
+
 type AlreadyStarted struct {
 	pid PID
 }
@@ -79,6 +100,10 @@ func (e AlreadyStarted) Error() string {
 	return fmt.Sprintf("Child with PID %s is already started", e.pid)
 }
 
+func (e AlreadyStarted) LogValue() slog.Value {
+	return slog.StringValue(e.Error())
+}
+
 type NotStarted struct{}
 
 func NewNotStarted() NotStarted {
@@ -87,4 +112,8 @@ func NewNotStarted() NotStarted {
 
 func (e NotStarted) Error() string {
 	return "not started"
+}
+
+func (e NotStarted) LogValue() slog.Value {
+	return slog.StringValue(e.Error())
 }
