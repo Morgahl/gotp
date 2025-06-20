@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/Morgahl/gotp"
-	"github.com/Morgahl/gotp/debug"
 )
 
 type Serverable[
@@ -66,7 +65,6 @@ func (OptionalCallbacks[I, Ct]) HandleContinue(cont Ct) (Continue[Ct], error) {
 
 func (OptionalCallbacks[I, Ct]) HandleInfo(info gotp.Msg) (Continue[Ct], error) {
 	slog.Warn("HandleInfo not implemented, info will be ignored", slog.Any("info", info))
-	panic(debug.ThrowF("HandleInfo not implemented, info will be ignored: %T", info))
 	return NoCont[Ct](), nil
 }
 

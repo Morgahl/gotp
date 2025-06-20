@@ -5,7 +5,7 @@ import (
 )
 
 const (
-	MAILBOX_SIZE     = 100
+	MAILBOX_SIZE     = 16
 	DEFAULT_TIMEOUT  = 5 * time.Second
 	DEFAULT_SHUTDOWN = 30 * time.Second
 )

@@ -16,8 +16,6 @@ type Started interface {
 	SendAfter(Msg, time.Duration) (*time.Timer, error)
 }
 
-type SpawnOpt func(*Process)
-
 type RunFn func(*Process) error
 
 type Process struct {
@@ -25,31 +23,33 @@ type Process struct {
 	linked PID
 
 	mailbox     Mailbox[Msg]
+	mbSize      int
 	deregHandle func()
 }
 
 func Spawn(fn RunFn, opts ...SpawnOpt) *Process {
-	p := build(PID{}, opts)
+	p := build(opts)
 	p.deregHandle = register(p)
 	go p.run(fn)
 	return p
 }
 
 func SpawnLink(fn RunFn, link PID, opts ...SpawnOpt) *Process {
-	p := build(link, opts)
+	p := build(append(opts, Link(link)))
 	p.deregHandle = register(p)
 	go p.run(fn)
 	return p
 }
 
-func build(link PID, opts []SpawnOpt) *Process {
-	p := &Process{pid: nextPID(), linked: link}
+func build(opts []SpawnOpt) *Process {
+	p := &Process{
+		pid:    nextPID(),
+		mbSize: MAILBOX_SIZE,
+	}
 	for _, opt := range opts {
 		opt(p)
 	}
-	if p.mailbox.ch == nil {
-		p.mailbox = NewMailbox[Msg](MAILBOX_SIZE)
-	}
+	p.mailbox = NewMailbox[Msg](p.mbSize)
 	return p
 }
 

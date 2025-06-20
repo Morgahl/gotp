@@ -49,7 +49,7 @@ func initLoop(rootCtx ctx.Cancellable, app application.Application, wg *sync.Wai
 			slog.ErrorContext(rootCtx, "grts.initLoop: failed to start supervision tree", slog.String("error", reason.Error()))
 			return reason
 		}
-		slog.DebugContext(rootCtx, "grts.initLoop: supervision tree started", slog.Any("id", sup.PID()), slog.Duration("took", time.Since(startUp)))
+		slog.DebugContext(rootCtx, "grts.initLoop: supervision tree started", slog.Any("pid", sup.PID()), slog.Duration("took", time.Since(startUp)))
 
 		for {
 			select {
