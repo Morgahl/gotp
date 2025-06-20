@@ -10,9 +10,9 @@ import (
 )
 
 const (
-	MIN_DURATION = 10 * time.Millisecond
-	MID_DURATION = 50 * time.Millisecond
-	MAX_DURATION = 200 * time.Millisecond
+	MIN_DURATION = 100 * time.Microsecond
+	MID_DURATION = 5 * time.Millisecond
+	MAX_DURATION = 50 * time.Millisecond
 )
 
 var _ gotp.Supervisable = &FooServer{}
@@ -67,9 +67,9 @@ func (f *FooServer) Terminate(reason error) error {
 
 func assessWork() time.Duration {
 	switch n := rand.Float64(); {
-	case n <= 0.3:
+	case n <= 0.4:
 		return time.Duration(rand.Int63n(int64(MIN_DURATION)))
-	case n <= 0.7:
+	case n <= 0.65:
 		return time.Duration(rand.Int63n(int64(MID_DURATION-MIN_DURATION))) + MIN_DURATION
 	case n <= 0.9:
 		return time.Duration(rand.Int63n(int64(MAX_DURATION-MID_DURATION))) + MID_DURATION

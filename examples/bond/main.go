@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log/slog"
 	"math/rand"
 
 	"github.com/Morgahl/gotp"
@@ -18,12 +19,14 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	count := runMissions(agent, rand.Intn(50)+50)
+	slog.Info("Running missions with agent", "pid", agent.pid)
+	count := runMissions(agent, rand.Intn(10)+5)
+	slog.Info("Completed missions", "count", count)
 	value, err := agent.EvaluatePerformance()
 	if err != nil {
 		panic(err)
 	}
-	fmt.Printf("Performance Evaluation: %f\n", value/float64(count+1))
+	slog.Info("Performance Evaluation", "result", value/float64(count+1))
 }
 
 func baseline[N number](base N) agent.InitFn[N] {
@@ -37,10 +40,12 @@ func baseline[N number](base N) agent.InitFn[N] {
 
 func runMissions(agent *Agent[float64], numMissions int) int {
 	for i := 0; i < numMissions; i++ {
-		agent.LogMissionObjectives((rand.Float64() * 75) + 25)
-		agent.LogMissionAttrition(rand.Float64() * 50)
-		agent.LogMissionObjectives((rand.Float64() * 75) + 25)
-		agent.LogMissionAttrition(rand.Float64() * 50)
+		slog.Info("Running mission", "mission", i+1)
+		score := (rand.Float64() * 50) + 50
+		loss := rand.Float64() * 50
+		agent.LogMissionObjectives(score)
+		agent.LogMissionAttrition(loss)
+		slog.Info("Mission completed", "mission", i+1, "score", score, "loss", loss, "net", score-loss)
 	}
 	return numMissions
 }
@@ -83,7 +88,7 @@ func (c *Agent[N]) LogMissionAttrition(n N) error {
 }
 
 func (c *Agent[N]) EvaluatePerformance() (n N, err error) {
-	n, _, err = agent.Get[N](c.pid, gotp.PIDZero(), func(state N) N {
+	n, _, err = agent.Get(c.pid, gotp.PIDZero(), func(state N) N {
 		return state
 	}, 0)
 
