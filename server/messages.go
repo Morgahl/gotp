@@ -1,4 +1,4 @@
-package gen_server
+package server
 
 import (
 	"github.com/Morgahl/gotp"

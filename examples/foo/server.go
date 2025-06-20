@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/Morgahl/gotp"
-	"github.com/Morgahl/gotp/gen_server"
+	"github.com/Morgahl/gotp/server"
 )
 
 const (
@@ -16,15 +16,15 @@ const (
 )
 
 var _ gotp.Supervisable = &FooServer{}
-var _ gen_server.Serverable[gotp.Options, any, any, any, any] = &FooServer{}
+var _ server.Serverable[gotp.Options, any, any, any, any] = &FooServer{}
 
 type FooServer struct {
 	id   gotp.Atom
 	work time.Duration
 
-	// Embed the gen_server.DefaultHandlers to provide default implementations
-	// for the gen_server.Serverable interface methods.
-	gen_server.OptionalCallbacks[any, any]
+	// Embed the server.DefaultHandlers to provide default implementations
+	// for the server.Serverable interface methods.
+	server.OptionalCallbacks[any, any]
 }
 
 func NewFooServer(id gotp.Atom) *FooServer {
@@ -44,18 +44,18 @@ func (f *FooServer) ChildSpec() gotp.ChildSpec {
 }
 
 func (f *FooServer) Start(opts ...gotp.SpawnOpt) (gotp.Started, error) {
-	return gen_server.New(f, nil).Start(opts...)
+	return server.New(f, nil).Start(opts...)
 }
 
 func (f *FooServer) StartLink(link gotp.PID, opts ...gotp.SpawnOpt) (gotp.Supervised, error) {
-	return gen_server.New(f, nil).StartLink(link, opts...)
+	return server.New(f, nil).StartLink(link, opts...)
 }
 
-func (f *FooServer) Init(opts gotp.Options) (gen_server.Continue[any], error) {
+func (f *FooServer) Init(opts gotp.Options) (server.Continue[any], error) {
 	start := time.Now()
 	simulateWork(f.work)
 	slog.Info("FooServer.Init", "id", f.id, "opts", opts, "took", time.Since(start))
-	return gen_server.NoCont[any](), nil
+	return server.NoCont[any](), nil
 }
 
 func (f *FooServer) Terminate(reason error) error {
@@ -79,6 +79,6 @@ func assessWork() time.Duration {
 }
 
 func simulateWork(work time.Duration) {
-	// halfWork := work / 2
-	// time.Sleep(time.Duration(rand.Int63n(int64(work-halfWork))) + halfWork)
+	halfWork := work / 2
+	time.Sleep(time.Duration(rand.Int63n(int64(work-halfWork))) + halfWork)
 }

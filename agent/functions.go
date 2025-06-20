@@ -4,37 +4,37 @@ import (
 	"time"
 
 	"github.com/Morgahl/gotp"
-	"github.com/Morgahl/gotp/gen_server"
+	"github.com/Morgahl/gotp/server"
 )
 
-func Start[T any](initFn InitFn[T], opts ...gotp.SpawnOpt) (*gen_server.Server[any, any, T, any, any], error) {
+func Start[T any](initFn InitFn[T], opts ...gotp.SpawnOpt) (*server.Server[any, any, T, any, any], error) {
 	s, err := New(initFn).Start(opts...)
 	if err != nil {
 		return nil, err
 	}
-	return s.(*gen_server.Server[any, any, T, any, any]), nil
+	return s.(*server.Server[any, any, T, any, any]), nil
 }
 
-func StartLink[T any](initFn InitFn[T], link gotp.PID, opts ...gotp.SpawnOpt) (*gen_server.Server[any, any, T, any, any], error) {
+func StartLink[T any](initFn InitFn[T], link gotp.PID, opts ...gotp.SpawnOpt) (*server.Server[any, any, T, any, any], error) {
 	s, err := New(initFn).StartLink(link, opts...)
 	if err != nil {
 		return nil, err
 	}
-	return s.(*gen_server.Server[any, any, T, any, any]), nil
+	return s.(*server.Server[any, any, T, any, any]), nil
 }
 
 func Cast[T any](to gotp.PID, msg UpdateFn[T], timeout time.Duration) error {
-	return gen_server.GenCast[gotp.Msg](to, msg, timeout)
+	return server.Cast[gotp.Msg](to, msg, timeout)
 }
 
 func Get[T any](to, from gotp.PID, msg GetFn[T], timeout time.Duration) (T, bool, error) {
-	return gen_server.GenCall[gotp.Msg, T](to, from, msg, timeout)
+	return server.Call[gotp.Msg, T](to, from, msg, timeout)
 }
 
 func GetAndUpdate[T any](to, from gotp.PID, msg GetAndUpdateFn[T], timeout time.Duration) (T, bool, error) {
-	return gen_server.GenCall[gotp.Msg, T](to, from, msg, timeout)
+	return server.Call[gotp.Msg, T](to, from, msg, timeout)
 }
 
 func Update[T any](to gotp.PID, msg UpdateFn[T], timeout time.Duration) error {
-	return gen_server.GenCast[gotp.Msg](to, msg, timeout)
+	return server.Cast[gotp.Msg](to, msg, timeout)
 }

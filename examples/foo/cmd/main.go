@@ -11,7 +11,6 @@ import (
 
 func init() {
 	logger.ConfigFromEnv()
-	logger.SetGlobalDefaultLogger()
 }
 
 func main() {

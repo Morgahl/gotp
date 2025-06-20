@@ -8,12 +8,12 @@ import (
 
 	"github.com/Morgahl/gotp"
 	"github.com/Morgahl/gotp/debug"
-	"github.com/Morgahl/gotp/gen_server"
+	"github.com/Morgahl/gotp/server"
 )
 
 var _ gotp.Supervisable = &StaticSupervisor{}
 var _ gotp.Supervised = &StaticSupervisor{}
-var _ gen_server.Serverable[gotp.Options, gotp.Msg, gotp.Msg, gotp.Msg, gotp.Msg] = &StaticSupervisor{}
+var _ server.Serverable[gotp.Options, gotp.Msg, gotp.Msg, gotp.Msg, gotp.Msg] = &StaticSupervisor{}
 
 type StaticSupervisor struct {
 	id       gotp.Atom
@@ -22,7 +22,7 @@ type StaticSupervisor struct {
 	specs    []gotp.Supervisable
 	childIDs map[gotp.Atom]gotp.PID
 	children map[gotp.PID]child
-	server   *gen_server.Server[gotp.Options, gotp.Msg, gotp.Msg, gotp.Msg, gotp.Msg]
+	server   *server.Server[gotp.Options, gotp.Msg, gotp.Msg, gotp.Msg, gotp.Msg]
 	// debug things below here subject to removal all of them are intreanl deatils only and should not affect the main
 	// API if possible
 
@@ -31,7 +31,7 @@ type StaticSupervisor struct {
 
 func Static(id gotp.Atom, sup Supervisor[gotp.Options], initArg gotp.Options) *StaticSupervisor {
 	static := &StaticSupervisor{id: id, sup: sup}
-	static.server = gen_server.New(static, initArg)
+	static.server = server.New(static, initArg)
 	return static
 }
 
@@ -73,17 +73,17 @@ func (s *StaticSupervisor) StartChild(child gotp.Supervisable, timeout time.Dura
 	if child == nil {
 		return NewInvalidChild(child)
 	}
-	return s.server.Send(gen_server.CallMsg[gotp.Msg, gotp.Msg](startChild{child}, s.PID()), timeout)
+	return s.server.Send(server.CallMsg[gotp.Msg, gotp.Msg](startChild{child}, s.PID()), timeout)
 }
 
 func (s *StaticSupervisor) StopChild(pid gotp.PID, timeout time.Duration) error {
 	if pid == gotp.PIDZero() {
 		return nil
 	}
-	return s.server.Send(gen_server.CallMsg[gotp.Msg, gotp.Msg](stopChild{pid}, s.PID()), timeout)
+	return s.server.Send(server.CallMsg[gotp.Msg, gotp.Msg](stopChild{pid}, s.PID()), timeout)
 }
 
-func (s *StaticSupervisor) Init(opts gotp.Options) (cont gen_server.Continue[gotp.Msg], err error) {
+func (s *StaticSupervisor) Init(opts gotp.Options) (cont server.Continue[gotp.Msg], err error) {
 	var flags Flags
 	var children []gotp.Supervisable
 
@@ -91,7 +91,7 @@ func (s *StaticSupervisor) Init(opts gotp.Options) (cont gen_server.Continue[got
 	slog.Debug("StaticSupervisor.Init", slog.Any("id", s.id), slog.Any("opts", opts))
 	if flags, children, err = s.sup.Init(opts); err != nil {
 		slog.Error("StaticSupervisor.Init failed", slog.Any("id", s.id), slog.Any("error", err))
-		return gen_server.NoCont[gotp.Msg](), err
+		return server.NoCont[gotp.Msg](), err
 	}
 	s.flags = flags.ApplyDefaults()
 	s.specs = children
@@ -105,71 +105,71 @@ func (s *StaticSupervisor) Init(opts gotp.Options) (cont gen_server.Continue[got
 			continue
 		} else if running, err := s.startChild(child); err != nil {
 			slog.Error("StaticSupervisor.Init failed to start child", slog.Any("id", s.id), slog.Any("error", err), slog.Any("child_id", child.ChildSpec().ID))
-			return gen_server.NoCont[gotp.Msg](), err
+			return server.NoCont[gotp.Msg](), err
 		} else {
 			s.registerChild(child, running)
 		}
 	}
 
 	slog.Debug("StaticSupervisor.Init children started", slog.Any("id", s.id), slog.Duration("took", time.Since(start)), slog.Int("children", len(s.children)))
-	return gen_server.NoCont[gotp.Msg](), nil
+	return server.NoCont[gotp.Msg](), nil
 }
 
-func (s *StaticSupervisor) HandleCall(msg gotp.Msg, _ gotp.PID) (resp gen_server.Response[gotp.Msg], cont gen_server.Continue[gotp.Msg], err error) {
+func (s *StaticSupervisor) HandleCall(msg gotp.Msg, _ gotp.PID) (resp server.Response[gotp.Msg], cont server.Continue[gotp.Msg], err error) {
 	switch m := msg.(type) {
 	case startChild:
 		if pid, ok := s.findChild(m.child); ok {
-			return gen_server.Reply[gotp.Msg](gotp.NewAlreadyStarted(pid)), gen_server.NoCont[gotp.Msg](), nil
+			return server.Reply[gotp.Msg](gotp.NewAlreadyStarted(pid)), server.NoCont[gotp.Msg](), nil
 		} else if running, err := s.startChild(m.child); err != nil {
 			slog.Error("StaticSupervisor.HandleCall failed to start child", slog.String("error", err.Error()))
-			return gen_server.Reply[gotp.Msg](err), gen_server.NoCont[gotp.Msg](), nil
+			return server.Reply[gotp.Msg](err), server.NoCont[gotp.Msg](), nil
 		} else {
 			s.registerChild(m.child, running)
-			return gen_server.Reply[gotp.Msg](running.PID()), gen_server.NoCont[gotp.Msg](), nil
+			return server.Reply[gotp.Msg](running.PID()), server.NoCont[gotp.Msg](), nil
 		}
 
 	case stopChild:
 		if child, ok := s.findChildByPID(m.pid); !ok {
-			return gen_server.Reply[gotp.Msg](false), gen_server.NoCont[gotp.Msg](), nil
+			return server.Reply[gotp.Msg](false), server.NoCont[gotp.Msg](), nil
 		} else if err := child.running.Send(gotp.NewExit(m.pid, gotp.Kill{}), 0); err != nil {
 			slog.Error("StaticSupervisor.HandleCall failed to stop child", slog.Any("pid", m.pid), slog.String("error", err.Error()))
-			return gen_server.Reply[gotp.Msg](err), gen_server.NoCont[gotp.Msg](), nil
+			return server.Reply[gotp.Msg](err), server.NoCont[gotp.Msg](), nil
 		} else {
 			s.deregisterChild(m.pid)
-			return gen_server.Reply[gotp.Msg](nil), gen_server.NoCont[gotp.Msg](), nil
+			return server.Reply[gotp.Msg](nil), server.NoCont[gotp.Msg](), nil
 		}
 	}
 
 	panic(fmt.Sprintf("StaticSupervisor.HandleCall: unknown message type %T", msg))
 }
 
-func (s *StaticSupervisor) HandleCast(msg gotp.Msg) (cont gen_server.Continue[gotp.Msg], err error) {
-	return gen_server.NoCont[gotp.Msg](), nil
+func (s *StaticSupervisor) HandleCast(msg gotp.Msg) (cont server.Continue[gotp.Msg], err error) {
+	return server.NoCont[gotp.Msg](), nil
 }
 
-func (s *StaticSupervisor) HandleContinue(arg gotp.Msg) (cont gen_server.Continue[gotp.Msg], err error) {
-	return gen_server.NoCont[gotp.Msg](), nil
+func (s *StaticSupervisor) HandleContinue(arg gotp.Msg) (cont server.Continue[gotp.Msg], err error) {
+	return server.NoCont[gotp.Msg](), nil
 }
 
-func (s *StaticSupervisor) HandleInfo(info gotp.Msg) (cont gen_server.Continue[gotp.Msg], err error) {
+func (s *StaticSupervisor) HandleInfo(info gotp.Msg) (cont server.Continue[gotp.Msg], err error) {
 	switch info := info.(type) {
 	case gotp.Exit:
 		if child, ok := s.findChildByPID(info.PID()); !ok {
-			return gen_server.NoCont[gotp.Msg](), nil
+			return server.NoCont[gotp.Msg](), nil
 		} else if !s.deregisterChild(info.PID()) {
-			return gen_server.NoCont[gotp.Msg](), nil
+			return server.NoCont[gotp.Msg](), nil
 		} else if !s.shouldRestart(info.PID()) {
-			return gen_server.NoCont[gotp.Msg](), nil
+			return server.NoCont[gotp.Msg](), nil
 		} else if err := s.StartChild(child.supervisable, 0); err != nil {
 			slog.Error("StaticSupervisor.HandleInfo: failed to restart child", slog.String("pid", info.PID().String()), slog.String("error", err.Error()))
 			// TODO: track this timer somewhere?
-			_, err = s.server.SendAfter(gen_server.CallMsg[gotp.Msg, gotp.Msg](startChild{child.supervisable}, s.PID()), s.flags.ResetPeriod)
-			return gen_server.NoCont[gotp.Msg](), err
+			_, err = s.server.SendAfter(server.CallMsg[gotp.Msg, gotp.Msg](startChild{child.supervisable}, s.PID()), s.flags.ResetPeriod)
+			return server.NoCont[gotp.Msg](), err
 		}
-		return gen_server.NoCont[gotp.Msg](), nil
+		return server.NoCont[gotp.Msg](), nil
 
 	default:
-		return gen_server.NoCont[gotp.Msg](), nil
+		return server.NoCont[gotp.Msg](), nil
 	}
 }
 func (s *StaticSupervisor) Terminate(reason error) (newReson error) {
@@ -286,4 +286,15 @@ func (s *StaticSupervisor) shouldRestart(pid gotp.PID) (restart bool) {
 	}
 
 	return restart
+}
+
+type child struct {
+	supervisable gotp.Supervisable
+	running      gotp.Started
+	restart      restart
+}
+
+type restart struct {
+	count uint
+	at    time.Time
 }

@@ -63,7 +63,9 @@ type Flags struct {
 }
 
 func (f Flags) String() string {
-	return fmt.Sprintf("Flags{AutoShutdown: %s, MaxRestarts: %d, ResetPeriod: %s, Shutdown: %s, Strategy: %s}", f.AutoShutdown, f.MaxRestarts, f.ResetPeriod, f.Shutdown, f.Strategy)
+	return fmt.Sprintf(
+		"Flags{AutoShutdown: %s, MaxRestarts: %d, ResetPeriod: %s, Shutdown: %s, Strategy: %s}",
+		f.AutoShutdown, f.MaxRestarts, f.ResetPeriod, f.Shutdown, f.Strategy)
 }
 
 func (f Flags) ApplyDefaults() Flags {
@@ -77,15 +79,4 @@ func (f Flags) ApplyDefaults() Flags {
 		f.Shutdown = 30 * time.Second
 	}
 	return f
-}
-
-type child struct {
-	supervisable gotp.Supervisable
-	running      gotp.Started
-	restart      restart
-}
-
-type restart struct {
-	count uint
-	at    time.Time
 }

@@ -1,4 +1,4 @@
-package gen_server
+package server
 
 import (
 	"time"
@@ -6,7 +6,7 @@ import (
 	"github.com/Morgahl/gotp"
 )
 
-func GenCall[Cl gotp.Msg, R gotp.Msg](to, from gotp.PID, msg Cl, timeout time.Duration) (resp R, replied bool, err error) {
+func Call[Cl gotp.Msg, R gotp.Msg](to, from gotp.PID, msg Cl, timeout time.Duration) (resp R, replied bool, err error) {
 	call := CallMsg[Cl, R](msg, from)
 	if err = gotp.Send(to, call, timeout); err != nil {
 		return resp, false, err
@@ -24,6 +24,6 @@ func GenCall[Cl gotp.Msg, R gotp.Msg](to, from gotp.PID, msg Cl, timeout time.Du
 	}
 }
 
-func GenCast[Cl gotp.Msg](to gotp.PID, msg Cl, timeout time.Duration) error {
+func Cast[Cl gotp.Msg](to gotp.PID, msg Cl, timeout time.Duration) error {
 	return gotp.Send(to, CastMsg(msg), timeout)
 }

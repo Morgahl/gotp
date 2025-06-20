@@ -3,14 +3,20 @@ package logger
 import (
 	"log/slog"
 	"os"
+
+	"github.com/lmittmann/tint"
 )
 
-var rootLogger *slog.Logger
+const (
+	TIME_FORMAT = "2006-01-02 15:04:05.000000"
+)
 
 func ConfigFromEnv(args ...any) {
-	opts := slog.HandlerOptions{
-		AddSource: true,
-		Level:     slog.LevelInfo,
+	stdout := os.Stdout
+	opts := tint.Options{
+		AddSource:  true,
+		Level:      slog.LevelInfo,
+		TimeFormat: TIME_FORMAT,
 	}
 
 	switch os.Getenv("LOG_SOURCE") {
@@ -34,9 +40,9 @@ func ConfigFromEnv(args ...any) {
 	case "true", "TRUE", "1":
 		colors = false
 	}
+	opts.NoColor = !colors
 
-	handler := TextHandler(os.Stdout, colors, &opts)
-	rootLogger = slog.New(handler).With(args...)
+	handler := tint.NewHandler(stdout, &opts)
+	logger := slog.New(handler).With(args...)
+	slog.SetDefault(logger)
 }
-
-func SetGlobalDefaultLogger() { slog.SetDefault(rootLogger) }
