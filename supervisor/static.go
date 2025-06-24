@@ -110,11 +110,11 @@ func (s *StaticSupervisor) Init(opts gotp.Options) (cont server.Continue[gotp.Ms
 		if child == nil {
 			slog.Error("StaticSupervisor.Init child is nil, skipping", slog.Any("id", s.id))
 			continue
-		} else if running, err := s.startChild(child); err != nil {
+		} else if supervised, err := s.startChild(child); err != nil {
 			slog.Error("StaticSupervisor.Init failed to start child", slog.Any("id", s.id), slog.Any("error", err), slog.Any("child_id", child.ChildSpec().ID))
 			return server.NoCont[gotp.Msg](), err
 		} else {
-			s.registerChild(child, running)
+			s.registerChild(supervised)
 		}
 	}
 
@@ -127,12 +127,12 @@ func (s *StaticSupervisor) HandleCall(msg gotp.Msg, _ gotp.PID) (resp server.Res
 	case startChild:
 		if pid, ok := s.findChild(m.child); ok {
 			return server.Reply[gotp.Msg](gotp.NewAlreadyStarted(pid)), server.NoCont[gotp.Msg](), nil
-		} else if running, err := s.startChild(m.child); err != nil {
+		} else if supervised, err := s.startChild(m.child); err != nil {
 			slog.Error("StaticSupervisor.HandleCall failed to start child", slog.String("error", err.Error()))
 			return server.Reply[gotp.Msg](err), server.NoCont[gotp.Msg](), nil
 		} else {
-			s.registerChild(m.child, running)
-			return server.Reply[gotp.Msg](running.ID()), server.NoCont[gotp.Msg](), nil
+			s.registerChild(supervised)
+			return server.Reply[gotp.Msg](supervised.ID()), server.NoCont[gotp.Msg](), nil
 		}
 
 	case stopChild:
@@ -140,7 +140,7 @@ func (s *StaticSupervisor) HandleCall(msg gotp.Msg, _ gotp.PID) (resp server.Res
 		if !ok {
 			return server.Reply[gotp.Msg](false), server.NoCont[gotp.Msg](), nil
 		}
-		child.running.Send(gotp.NewExit(m.pid, gotp.Kill{}))
+		child.supervised.Send(gotp.NewExit(m.pid, gotp.Kill{}))
 		removed := s.deregisterChild(m.pid)
 		return server.Reply[gotp.Msg](removed), server.NoCont[gotp.Msg](), nil
 	}
@@ -167,14 +167,14 @@ func (s *StaticSupervisor) HandleInfo(info gotp.Msg) (cont server.Continue[gotp.
 		} else if !s.shouldRestart(info.ID()) {
 			return server.NoCont[gotp.Msg](), nil
 		}
-		r := s.StartChild(child.supervisable)
+		r := s.StartChild(child.supervised)
 		switch r := r.(type) {
 		case gotp.PID, gotp.AlreadyStarted:
 			return server.NoCont[gotp.Msg](), nil
 		case error:
 			slog.Error("StaticSupervisor.HandleInfo failed to start child", slog.Any("error", r))
 			// TODO: track this timer somewhere?
-			_ = s.server.SendAfter(server.CallMsg[gotp.Msg, gotp.Msg](s.ID(), startChild{child.supervisable}), s.flags.ResetPeriod)
+			_ = s.server.SendAfter(server.CallMsg[gotp.Msg, gotp.Msg](s.ID(), startChild{child.supervised}), s.flags.ResetPeriod)
 			return server.NoCont[gotp.Msg](), err
 
 		default:
@@ -195,14 +195,14 @@ func (s *StaticSupervisor) Terminate(reason error) (newReson error) {
 	// TODO: for now, we sort them by PID in descending order to ensure that the most recently started
 	// TODO: processes are terminated first
 	slices.SortFunc(children, func(i, j child) int {
-		return gotp.ComparePID(i.running.ID(), j.running.ID()) * -1
+		return gotp.ComparePID(i.supervised.ID(), j.supervised.ID()) * -1
 	})
 
 	// shutdown:
 	for _, child := range children {
-		pid := child.running.ID()
-		timeout := child.supervisable.ChildSpec().Shutdown
-		child.running.Send(gotp.NewExit(pid, reason))
+		pid := child.supervised.ID()
+		timeout := child.supervised.ChildSpec().Shutdown
+		child.supervised.Send(gotp.NewExit(pid, reason))
 
 		select {
 		case msg, ok := <-s.server.Receive():
@@ -246,17 +246,17 @@ func (s *StaticSupervisor) startChild(child gotp.Supervisable) (gotp.Supervised,
 	return child.StartLink(s.server.ID(), child.ChildSpec().SpawnOpts...)
 }
 
-func (s *StaticSupervisor) registerChild(supervisable gotp.Supervisable, running gotp.Started) {
-	pid := running.ID()
-	s.children[pid] = child{supervisable: supervisable, running: running}
-	if id := supervisable.ChildSpec().ID; id != "" {
+func (s *StaticSupervisor) registerChild(supervised gotp.Supervised) {
+	pid := supervised.ID()
+	s.children[pid] = child{supervised: supervised}
+	if id := supervised.ChildSpec().ID; id != "" {
 		s.childIDs[id] = pid
 	}
 }
 
 func (s *StaticSupervisor) deregisterChild(pid gotp.PID) (deleted bool) {
 	if child, ok := s.children[pid]; ok {
-		if id := child.supervisable.ChildSpec().ID; id != "" {
+		if id := child.supervised.ChildSpec().ID; id != "" {
 			delete(s.childIDs, id)
 		}
 		delete(s.children, pid)
@@ -275,7 +275,7 @@ func (s *StaticSupervisor) shouldRestart(pid gotp.PID) (restart bool) {
 		return false
 	}
 
-	switch cs.supervisable.ChildSpec().Restart {
+	switch cs.supervised.ChildSpec().Restart {
 	case gotp.TEMPORARY, gotp.TRANSIENT:
 		return false
 	case gotp.PERMANENT:
@@ -303,12 +303,9 @@ func (s *StaticSupervisor) shouldRestart(pid gotp.PID) (restart bool) {
 }
 
 type child struct {
-	supervisable gotp.Supervisable
-	running      gotp.Started
-	restart      restart
-}
-
-type restart struct {
-	count uint
-	at    time.Time
+	supervised gotp.Supervised
+	restart    struct {
+		count uint
+		at    time.Time
+	}
 }

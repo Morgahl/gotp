@@ -17,12 +17,12 @@ func init() {
 
 func main() {
 	start := time.Now()
-	agent, err := newAgent(baseline(100.0))
+	agent, err := newAgent(baseline[float64]())
 	if err != nil {
 		panic(err)
 	}
-	slog.Info("Running missions with agent", "pid", agent.pid)
-	count := rand.Intn(10) + 5
+	count := rand.Intn(1_000_000) + 500_000
+	slog.Info("Running missions with agent", "pid", agent.pid, "count", count)
 	runMissions(agent, count)
 	slog.Info("Completed missions", "count", count)
 	value := agent.EvaluatePerformance()
@@ -30,12 +30,9 @@ func main() {
 	slog.Info("Performance Evaluation", "result", value, "took", took, "avg", took/time.Duration(count))
 }
 
-func baseline[N number](base N) agent.InitFn[state[N]] {
-	if base <= 0 {
-		base = 1
-	}
+func baseline[N number]() agent.InitFn[state[N]] {
 	return func() *state[N] {
-		return &state[N]{value: base, count: 1}
+		return &state[N]{}
 	}
 }
 
@@ -85,8 +82,13 @@ type state[N number] struct {
 }
 
 func (s *state[N]) Update(n N) {
-	s.value += n
-	s.count += 1
+	if s.count == 0 {
+		s.value = n
+		s.count = 1
+	} else {
+		s.value += n
+		s.count += 1
+	}
 }
 
 func (s *state[N]) EvaluatePerformance() N {
