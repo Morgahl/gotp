@@ -1,4 +1,4 @@
-package foo
+package game
 
 import (
 	"fmt"
@@ -18,24 +18,6 @@ const (
 
 var _ gotp.Supervisable = &Crew{}
 var _ server.Serverable[gotp.Options, any, any, workItem, any] = &Crew{}
-
-type workItem struct {
-	id    gotp.Atom
-	taken time.Duration
-	rem   int
-}
-
-func (w workItem) String() string {
-	return fmt.Sprintf("workItem{id: %s, rem: %d}", w.id, w.rem)
-}
-
-func (w workItem) LogValue() slog.Value {
-	return slog.GroupValue(
-		slog.Any("id", w.id),
-		slog.Duration("taken", w.taken),
-		slog.Int("rem", w.rem),
-	)
-}
 
 type Crew struct {
 	id gotp.Atom
@@ -105,6 +87,24 @@ func (f *Crew) Terminate(reason error) error {
 		slog.Info("Crew.Terminate", "id", f.id, "pid", f.server.ID(), "work", f.wi, "reason", reason)
 	}
 	return reason
+}
+
+type workItem struct {
+	id    gotp.Atom
+	taken time.Duration
+	rem   int
+}
+
+func (w workItem) String() string {
+	return fmt.Sprintf("workItem{id: %s, rem: %d}", w.id, w.rem)
+}
+
+func (w workItem) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.Any("id", w.id),
+		slog.Duration("taken", w.taken),
+		slog.Int("rem", w.rem),
+	)
 }
 
 func assessWork() time.Duration {

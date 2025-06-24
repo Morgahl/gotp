@@ -1,4 +1,4 @@
-package foo
+package game
 
 import (
 	"errors"
@@ -9,17 +9,17 @@ import (
 	"github.com/Morgahl/gotp/supervisor"
 )
 
-type WarGamesApplication struct{}
+type Game struct{}
 
-func (WarGamesApplication) Name() gotp.Atom {
-	return "WarGamesApplication"
+func (Game) Name() gotp.Atom {
+	return "Game"
 }
 
-func (WarGamesApplication) Version() application.Version {
+func (Game) Version() application.Version {
 	return application.Ver(0, 1, 0, "alpha")
 }
 
-func (f WarGamesApplication) Start(st application.StartType) (gotp.Supervisable, error) {
+func (f Game) Start(st application.StartType) (gotp.Supervisable, error) {
 	if st.IsNormal() {
 		return NewTeam("teams", supervisor.Flags{},
 			NewTeam("alpha", supervisor.Flags{}, f.assignCrew("alpha")...),
@@ -48,14 +48,14 @@ func (f WarGamesApplication) Start(st application.StartType) (gotp.Supervisable,
 			NewTeam("omega", supervisor.Flags{}, f.assignCrew("omega")...),
 		), nil
 	} else if _, ok := st.IsFailover(); ok {
-		return nil, errors.New("failover not supported in WarGamesApplication")
+		return nil, errors.New("failover not supported in Game")
 	} else if _, ok := st.IsTakeover(); ok {
-		return nil, errors.New("takeover not supported in WarGamesApplication")
+		return nil, errors.New("takeover not supported in Game")
 	}
 	panic(debug.ThrowF("unknown start type: %s", st))
 }
 
-func (WarGamesApplication) assignCrew(n gotp.Atom) []gotp.Supervisable {
+func (Game) assignCrew(n gotp.Atom) []gotp.Supervisable {
 	return []gotp.Supervisable{
 		NewCrew(n + "_alice"),
 		NewCrew(n + "_bob"),

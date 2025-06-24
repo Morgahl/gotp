@@ -1,4 +1,4 @@
-package foo
+package game
 
 import (
 	"log/slog"
