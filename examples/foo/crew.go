@@ -11,9 +11,9 @@ import (
 )
 
 const (
-	MIN_DURATION = 500 * time.Millisecond
-	MID_DURATION = 1 * time.Second
-	MAX_DURATION = 2 * time.Second
+	MIN_DURATION = 500 * time.Microsecond
+	MID_DURATION = 5 * time.Millisecond
+	MAX_DURATION = 500 * time.Millisecond
 )
 
 var _ gotp.Supervisable = &Crew{}
@@ -57,7 +57,7 @@ func (f *Crew) ChildSpec() gotp.ChildSpec {
 	return gotp.ChildSpec{
 		ID:       f.id,
 		Restart:  gotp.TRANSIENT,
-		Shutdown: 30 * time.Second,
+		Shutdown: gotp.DEFAULT_SHUTDOWN,
 		Type:     gotp.WORKER,
 	}
 }
@@ -75,7 +75,7 @@ func (f *Crew) Init(opts gotp.Options) (c server.Continue[any], err error) {
 	slog.Debug("Crew.Init", "id", f.id, "pid", f.server.ID(), "took", time.Since(start), "opts", opts)
 	f.wi = workItem{
 		id:  f.id,
-		rem: rand.Intn(10) + 11,
+		rem: rand.Intn(100) + 101,
 	}
 	f.server.Send(server.CastMsg(f.wi))
 	return server.NoCont[any](), nil
@@ -87,9 +87,10 @@ func (f *Crew) HandleCast(work workItem) (server.Continue[any], error) {
 	}
 	f.wi.rem--
 	load := assessWork()
+	time.Sleep(load)
 	f.wi.taken += load
 	if f.wi.rem >= 1 {
-		f.server.SendAfter(server.CastMsg(f.wi), load)
+		f.server.Send(server.CastMsg(f.wi))
 	} else {
 		f.server.Stop(nil)
 		return server.NoCont[any](), nil
@@ -108,11 +109,11 @@ func (f *Crew) Terminate(reason error) error {
 
 func assessWork() time.Duration {
 	switch n := rand.Float64(); {
-	case n <= 0.4:
+	case n <= 0.6:
 		return time.Duration(rand.Int63n(int64(MIN_DURATION)))
-	case n <= 0.65:
+	case n <= 0.8:
 		return time.Duration(rand.Int63n(int64(MID_DURATION-MIN_DURATION))) + MIN_DURATION
-	case n <= 0.9:
+	case n <= 0.95:
 		return time.Duration(rand.Int63n(int64(MAX_DURATION-MID_DURATION))) + MID_DURATION
 	default:
 		return time.Duration(rand.Int63n(int64(MAX_DURATION))) + MID_DURATION

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log/slog"
 	"math/rand"
 	"time"
@@ -25,27 +26,27 @@ func main() {
 	runMissions(agent, count)
 	slog.Info("Completed missions", "count", count)
 	value := agent.EvaluatePerformance()
-	slog.Info("Performance Evaluation", "result", value/float64(count+1), "took", time.Since(start))
+	took := time.Since(start)
+	slog.Info("Performance Evaluation", "result", value, "took", took, "avg", took/time.Duration(count))
 }
 
-func baseline[N number](base N) agent.InitFn[N] {
+func baseline[N number](base N) agent.InitFn[state[N]] {
 	if base <= 0 {
 		base = 1
 	}
-	return func() *N {
-		return &base
+	return func() *state[N] {
+		return &state[N]{value: base, count: 1}
 	}
 }
 
 func runMissions(agent *Agent[float64], numMissions int) {
 	for i := 0; i < numMissions; i++ {
-		// slog.Info("Running mission", "mission", i+1)
+		slog.Debug("Running mission", "mission", i+1)
 		score := (rand.Float64() * 25) + 75
-		loss := rand.Float64() * 25
-		// slog.Info("Submitting report", "mission", i+1, "score", score, "loss", loss, "net", score-loss)
-		agent.LogMissionObjectives(score)
-		agent.LogMissionAttrition(loss)
-		// slog.Info("Mission report submitted", "mission", i+1)
+		loss := rand.Float64() * (100 - score)
+		slog.Debug("Submitting report", "mission", i+1, "score", score, "loss", loss, "net", score-loss)
+		agent.LogMission(score, loss)
+		slog.Debug("Mission report submitted", "mission", i+1)
 	}
 }
 
@@ -59,7 +60,7 @@ type Agent[N number] struct {
 	pid gotp.PID
 }
 
-func newAgent[N number](initFn agent.InitFn[N]) (*Agent[N], error) {
+func newAgent[N number](initFn agent.InitFn[state[N]]) (*Agent[N], error) {
 	server, err := agent.New(initFn).Start()
 	if err != nil {
 		return nil, err
@@ -68,29 +69,37 @@ func newAgent[N number](initFn agent.InitFn[N]) (*Agent[N], error) {
 	return c, nil
 }
 
-func (c *Agent[N]) LogMissionObjectives(n N) {
-	if n < 0 {
-		n = 0
-	}
-	agent.Update(c.pid, func(state *N) {
-		*state += n
-		slog.Debug("Logged mission objectives result", "result", n, "state", *state)
-	})
+func (c *Agent[N]) LogMission(score, loss N) {
+	agent.Update(c.pid, func(state *state[N]) { state.Update(score - loss) })
 }
 
-func (c *Agent[N]) LogMissionAttrition(n N) {
-	if n < 0 {
-		n = 0
-	}
-	agent.Update(c.pid, func(state *N) {
-		*state -= n
-		slog.Debug("Logged mission attrition result", "result", n, "state", *state)
-	})
+func (c *Agent[N]) EvaluatePerformance() N {
+	n, _ := agent.Get(c.pid, c.pid, func(state state[N]) state[N] { return state })
+	slog.Info("Evaluating performance", "state", n)
+	return n.EvaluatePerformance()
 }
 
-func (c *Agent[N]) EvaluatePerformance() (n N) {
-	n, _ = agent.Get(c.pid, c.pid, func(state N) N {
-		return state
-	})
-	return
+type state[N number] struct {
+	value N
+	count N
+}
+
+func (s *state[N]) Update(n N) {
+	s.value += n
+	s.count += 1
+}
+
+func (s *state[N]) EvaluatePerformance() N {
+	return s.value / s.count
+}
+
+func (s state[N]) String() string {
+	return fmt.Sprintf("State{value: %v, count: %v}", s.value, s.count)
+}
+
+func (s state[N]) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.Any("value", s.value),
+		slog.Any("count", s.count),
+	)
 }

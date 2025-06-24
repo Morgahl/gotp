@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -48,23 +49,23 @@ func (OptionalCallbacks[I, Ct]) ChildSpec() gotp.ChildSpec {
 	}
 }
 
-func (OptionalCallbacks[I, Ct]) HandleCall(call any, from gotp.PID) (Response[any], Continue[Ct], error) {
-	slog.Warn("HandleCall not implemented, call will be ignored", slog.Any("call", call), slog.String("from", from.String()))
+func (OptionalCallbacks[I, Ct]) HandleCall(msg any, from gotp.PID) (Response[any], Continue[Ct], error) {
+	slog.Warn("HandleCall not implemented, msg will be ignored", slog.String("msg", fmt.Sprintf("%+v", msg)), slog.String("from", from.String()))
 	return NoReply[any](), NoCont[Ct](), nil
 }
 
-func (OptionalCallbacks[I, Ct]) HandleCast(cast any) (Continue[Ct], error) {
-	slog.Warn("HandleCast not implemented, cast will be ignored", slog.Any("cast", cast))
+func (OptionalCallbacks[I, Ct]) HandleCast(msg any) (Continue[Ct], error) {
+	slog.Warn("HandleCast not implemented, msg will be ignored", slog.String("msg", fmt.Sprintf("%+v", msg)))
 	return NoCont[Ct](), nil
 }
 
-func (OptionalCallbacks[I, Ct]) HandleContinue(cont Ct) (Continue[Ct], error) {
-	slog.Warn("HandleContinue not implemented, continue will be ignored", slog.Any("continue", cont))
+func (OptionalCallbacks[I, Ct]) HandleContinue(msg Ct) (Continue[Ct], error) {
+	slog.Warn("HandleContinue not implemented, msg will be ignored", slog.String("msg", fmt.Sprintf("%+v", msg)))
 	return NoCont[Ct](), nil
 }
 
-func (OptionalCallbacks[I, Ct]) HandleInfo(info gotp.Msg) (Continue[Ct], error) {
-	slog.Warn("HandleInfo not implemented, info will be ignored", slog.Any("info", info))
+func (OptionalCallbacks[I, Ct]) HandleInfo(msg gotp.Msg) (Continue[Ct], error) {
+	slog.Warn("HandleInfo not implemented, msg will be ignored", slog.String("msg", fmt.Sprintf("%+v", msg)))
 	return NoCont[Ct](), nil
 }
 

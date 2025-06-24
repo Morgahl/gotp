@@ -34,7 +34,7 @@ func (s *StaticSupervisor) ChildSpec() gotp.ChildSpec {
 	return gotp.ChildSpec{
 		ID:          s.id,
 		Restart:     gotp.PERMANENT,
-		Shutdown:    30 * time.Second,
+		Shutdown:    gotp.DEFAULT_SHUTDOWN,
 		Type:        gotp.SUPERVISOR,
 		Significant: true,
 	}
@@ -185,7 +185,7 @@ func (s *StaticSupervisor) HandleInfo(info gotp.Msg) (cont server.Continue[gotp.
 }
 
 func (s *StaticSupervisor) Terminate(reason error) (newReson error) {
-	timeout := time.After(s.flags.Shutdown)
+
 	children := make([]child, 0, len(s.children))
 	for _, c := range s.children {
 		children = append(children, c)
@@ -198,9 +198,10 @@ func (s *StaticSupervisor) Terminate(reason error) (newReson error) {
 		return gotp.ComparePID(i.running.ID(), j.running.ID()) * -1
 	})
 
-shutdown:
+	// shutdown:
 	for _, child := range children {
 		pid := child.running.ID()
+		timeout := child.supervisable.ChildSpec().Shutdown
 		child.running.Send(gotp.NewExit(pid, reason))
 
 		select {
@@ -213,9 +214,11 @@ shutdown:
 				s.deregisterChild(msg.ID())
 				continue
 			}
+
 			slog.Error("StaticSupervisor.Terminate: discarding message", slog.String("msg", fmt.Sprintf("%+v", msg)))
-		case <-timeout:
-			break shutdown
+		case <-time.After(timeout):
+			slog.Warn("StaticSupervisor.Terminate: child did not exit in time", slog.Any("pid", pid), slog.Any("timeout", timeout), slog.Any("reason", reason))
+			continue
 		}
 	}
 	return reason

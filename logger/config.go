@@ -43,6 +43,10 @@ func ConfigFromEnv(args ...any) {
 	opts.NoColor = !colors
 
 	handler := tint.NewHandler(stdout, &opts)
+	// handler := slog.NewJSONHandler(stdout, &slog.HandlerOptions{
+	// 	AddSource: opts.AddSource,
+	// 	Level:     opts.Level,
+	// })
 	logger := slog.New(handler).With(args...)
 	slog.SetDefault(logger)
 }

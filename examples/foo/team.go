@@ -2,7 +2,6 @@ package foo
 
 import (
 	"log/slog"
-	"time"
 
 	"github.com/Morgahl/gotp"
 	"github.com/Morgahl/gotp/supervisor"
@@ -29,7 +28,7 @@ func (f *Team) ChildSpec() gotp.ChildSpec {
 	return gotp.ChildSpec{
 		ID:          f.id,
 		Restart:     gotp.TRANSIENT,
-		Shutdown:    30 * time.Second,
+		Shutdown:    gotp.DEFAULT_SHUTDOWN,
 		Type:        gotp.SUPERVISOR,
 		Significant: true,
 	}

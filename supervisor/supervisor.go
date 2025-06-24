@@ -73,10 +73,10 @@ func (f Flags) ApplyDefaults() Flags {
 		f.MaxRestarts = 3
 	}
 	if f.ResetPeriod <= 0 {
-		f.ResetPeriod = 5 * time.Second
+		f.ResetPeriod = gotp.DEFAULT_TIMEOUT
 	}
 	if f.Shutdown <= 0 {
-		f.Shutdown = 30 * time.Second
+		f.Shutdown = gotp.DEFAULT_SHUTDOWN
 	}
 	return f
 }

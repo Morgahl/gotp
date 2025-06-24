@@ -3,7 +3,6 @@ package agent
 import (
 	"fmt"
 	"log/slog"
-	"time"
 
 	"github.com/Morgahl/gotp"
 	"github.com/Morgahl/gotp/server"
@@ -44,7 +43,7 @@ func (a *Agent[T]) StartLink(link gotp.PID, opts ...gotp.SpawnOpt) (gotp.Supervi
 func (a *Agent[T]) ChildSpec() gotp.ChildSpec {
 	return gotp.ChildSpec{
 		Restart:     gotp.PERMANENT,
-		Shutdown:    30 * time.Second,
+		Shutdown:    gotp.DEFAULT_SHUTDOWN,
 		Type:        gotp.WORKER,
 		Significant: true,
 	}

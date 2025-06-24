@@ -5,7 +5,7 @@ import (
 )
 
 const (
-	MAILBOX_SIZE     = 16
+	MAILBOX_SIZE     = 24
 	DEFAULT_TIMEOUT  = 5 * time.Second
 	DEFAULT_SHUTDOWN = 30 * time.Second
 )
@@ -22,12 +22,7 @@ func NewMailbox[M Msg](bufferSize int) Mailbox[M] {
 }
 
 func (m *Mailbox[M]) Send(msg M) {
-	select {
-	case m.ch <- msg:
-	default:
-		// TODO: use an actual mailbox...
-		go func() { m.ch <- msg }()
-	}
+	m.ch <- msg
 }
 
 func (m *Mailbox[M]) Receive() <-chan M {
