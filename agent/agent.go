@@ -59,25 +59,28 @@ func (a *Agent[T]) Init(any) (server.Continue[gotp.Msg], error) {
 }
 
 func (a *Agent[T]) HandleCall(msg gotp.Msg, from gotp.PID) (server.Response[T], server.Continue[gotp.Msg], error) {
-	slog.Debug("HandleCall", slog.String("msg", fmt.Sprintf("%+v", msg)), slog.Any("from", from))
 	switch msg := msg.(type) {
 	case GetFn[T]:
+		slog.Debug("HandleCall", slog.Any("from", from), slog.Any("msg", fmt.Sprintf("%T", msg)))
 		return server.Reply(msg(*a.state)), server.NoCont[gotp.Msg](), nil
 	case GetAndUpdateFn[T]:
+		slog.Debug("HandleCall", slog.Any("from", from), slog.Any("msg", fmt.Sprintf("%T", msg)))
 		return server.Reply(msg(a.state)), server.NoCont[gotp.Msg](), nil
 	case UpdateFn[T]:
+		slog.Debug("HandleCall", slog.Any("from", from), slog.Any("msg", fmt.Sprintf("%T", msg)))
 		msg(a.state)
 		return server.NoReply[T](), server.NoCont[gotp.Msg](), nil
 	default:
+		slog.Debug("HandleCall", slog.Any("from", from), slog.Any("msg", fmt.Sprintf("%T", msg)))
 		cont, err := a.HandleInfo(msg)
 		return server.NoReply[T](), cont, err
 	}
 }
 
 func (a *Agent[T]) HandleCast(msg gotp.Msg) (server.Continue[gotp.Msg], error) {
-	slog.Debug("HandleCast", slog.String("msg", fmt.Sprintf("%+v", msg)))
 	switch msg := msg.(type) {
 	case UpdateFn[T]:
+		slog.Debug("HandleCast", slog.Any("msg", fmt.Sprintf("%T", msg)))
 		msg(a.state)
 		return server.NoCont[gotp.Msg](), nil
 	default:

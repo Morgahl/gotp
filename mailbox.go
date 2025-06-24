@@ -21,17 +21,13 @@ func NewMailbox[M Msg](bufferSize int) Mailbox[M] {
 	return Mailbox[M]{ch: make(chan M, bufferSize)}
 }
 
-func (m *Mailbox[M]) Send(msg M, timeout time.Duration) error {
-	if timeout > 0 {
-		select {
-		case <-time.After(timeout):
-			return NewTimeout(timeout)
-		case m.ch <- msg:
-		}
-	} else {
-		m.ch <- msg
+func (m *Mailbox[M]) Send(msg M) {
+	select {
+	case m.ch <- msg:
+	default:
+		// TODO: use an actual mailbox...
+		go func() { m.ch <- msg }()
 	}
-	return nil
 }
 
 func (m *Mailbox[M]) Receive() <-chan M {

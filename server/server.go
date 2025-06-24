@@ -54,25 +54,27 @@ func New[
 	return &Server[I, Cl, R, Cs, Ct]{server: server, initArg: initArg}
 }
 
+func (s Server[I, Cl, R, Cs, Ct]) String() string {
+	return fmt.Sprintf("Server[%T](server: %s, process: %s, initArg: %v)", s.server, s.server, s.process, s.initArg)
+}
+
 func (s *Server[I, Cl, R, Cs, Ct]) ChildSpec() gotp.ChildSpec {
 	return s.server.ChildSpec()
 }
 
 func (s *Server[I, Cl, R, Cs, Ct]) Start(opts ...gotp.SpawnOpt) (gotp.Started, error) {
-	<-s.setupProc(opts...)
-	return s, nil
+	err := <-s.setupProc(opts...)
+	return s, err
 }
 
 func (s *Server[I, Cl, R, Cs, Ct]) StartLink(link gotp.PID, opts ...gotp.SpawnOpt) (gotp.Supervised, error) {
-	<-s.setupLinkedProc(link, opts...)
-	return s, nil
+	err := <-s.setupLinkedProc(link, opts...)
+	return s, err
 }
 
 func (s *Server[I, Cl, R, Cs, Ct]) Call(msg Cl, timeout time.Duration) (resp R, err error) {
-	call := CallMsg[Cl, R](msg, s.process.PID())
-	if err = s.process.Send(call, timeout); err != nil {
-		return resp, err
-	}
+	call := CallMsg[Cl, R](s.process.ID(), msg)
+	s.process.Send(call)
 
 	if timeout <= 0 {
 		timeout = gotp.DEFAULT_TIMEOUT
@@ -87,31 +89,28 @@ func (s *Server[I, Cl, R, Cs, Ct]) Call(msg Cl, timeout time.Duration) (resp R, 
 	}
 }
 
-func (s *Server[I, Cl, R, Cs, Ct]) Cast(msg Cs, timeout time.Duration) error {
-	return s.process.Send(CastMsg(msg), timeout)
+func (s *Server[I, Cl, R, Cs, Ct]) Cast(msg Cs) {
+	s.process.Send(CastMsg(msg))
 }
 
-func (s *Server[I, Cl, R, Cs, Ct]) Info(msg gotp.Msg, timeout time.Duration) error {
-	return s.process.Send(msg, timeout)
+func (s *Server[I, Cl, R, Cs, Ct]) Info(msg gotp.Msg) {
+	s.process.Send(msg)
 }
 
-func (s *Server[I, Cl, R, Cs, Ct]) PID() gotp.PID {
-	return s.process.PID()
+func (s *Server[I, Cl, R, Cs, Ct]) Stop(reason error) {
+	s.process.Send(StopMsg(reason))
 }
 
-func (s *Server[I, Cl, R, Cs, Ct]) Send(msg gotp.Msg, timeout time.Duration) error {
-	if s.process == nil {
-		return gotp.NewNotStarted()
-	}
-	return s.process.Send(msg, timeout)
+func (s *Server[I, Cl, R, Cs, Ct]) ID() gotp.PID {
+	return s.process.ID()
 }
 
-func (s *Server[I, Cl, R, Cs, Ct]) SendAfter(msg gotp.Msg, delay time.Duration) (*time.Timer, error) {
-	if s.process == nil {
-		slog.Error("Server.SendAfter: Server not started")
-		return nil, gotp.NewNotStarted()
-	}
-	return s.process.SendAfter(msg, delay)
+func (s *Server[I, Cl, R, Cs, Ct]) Send(msg gotp.Msg) {
+	s.process.Send(msg)
+}
+
+func (s *Server[I, Cl, R, Cs, Ct]) SendAfter(msg gotp.Msg, after time.Duration) *time.Timer {
+	return s.process.SendAfter(msg, after)
 }
 
 func (s *Server[I, Cl, R, Cs, Ct]) Receive() <-chan gotp.Msg {
@@ -122,19 +121,21 @@ func (s *Server[I, Cl, R, Cs, Ct]) Receive() <-chan gotp.Msg {
 	return s.process.Receive()
 }
 
-func (s *Server[I, Cl, R, Cs, Ct]) setupProc(opts ...gotp.SpawnOpt) <-chan struct{} {
-	sig := make(chan struct{})
+func (s *Server[I, Cl, R, Cs, Ct]) setupProc(opts ...gotp.SpawnOpt) <-chan error {
+	sig := make(chan error)
 	s.process = gotp.Spawn(s.loop(sig), opts...)
+	s.process.Start()
 	return sig
 }
 
-func (s *Server[I, Cl, R, Cs, Ct]) setupLinkedProc(link gotp.PID, opts ...gotp.SpawnOpt) <-chan struct{} {
-	sig := make(chan struct{})
-	s.process = gotp.SpawnLink(s.loop(sig), link, opts...)
+func (s *Server[I, Cl, R, Cs, Ct]) setupLinkedProc(link gotp.PID, opts ...gotp.SpawnOpt) <-chan error {
+	sig := make(chan error)
+	s.process = gotp.Spawn(s.loop(sig), append(opts, gotp.Link(link))...)
+	s.process.Start()
 	return sig
 }
 
-func (s *Server[I, Cl, R, Cs, Ct]) loop(sig chan struct{}) gotp.RunFn {
+func (s *Server[I, Cl, R, Cs, Ct]) loop(sig chan error) gotp.RunFn {
 	return func(p *gotp.Process) (reason error) {
 		var cont Continue[Ct]
 		var resp Response[R]
@@ -142,32 +143,41 @@ func (s *Server[I, Cl, R, Cs, Ct]) loop(sig chan struct{}) gotp.RunFn {
 			if r := recover(); r != nil {
 				reason = debug.Catch(reason, r)
 			}
-			if err := s.process.Exit(s.server.Terminate(reason), 0); err != nil {
-				slog.Error("Server.loop: failed to exit process", "error", err)
+			s.process.Exit(s.server.Terminate(reason))
+			if sig != nil && len(sig) < cap(sig) {
+				sig <- reason
+				close(sig)
 			}
 		}()
 
 		cont, reason = s.server.Init(s.initArg)
+		sig <- reason
 		close(sig)
+		sig = nil
 
 		for {
 			if reason != nil {
-				return // stop processing messages
+				// stop processing messages
+				return
 			} else if cont.atom == CONTINUE {
 				// We have a continuation, we should process it first and then continue the loop.
 				cont, reason = s.server.HandleContinue(cont.arg)
 				continue
 			}
 
-			msg, ok := <-s.process.Receive()
+			msg, ok := <-p.Receive()
 			if !ok {
 				// The Process mailbox has been closed?!?!
-				panic(fmt.Sprintf("Server.loop: Process mailbox closed unexpectedly for PID %s", s.process.PID()))
+				panic(fmt.Sprintf("Server.loop: Process mailbox closed unexpectedly for PID %s", p.ID()))
 			}
 			switch msg := msg.(type) {
+			case stop:
+				// We have a stop message, we should terminate the server.
+				return msg.reason
+
 			case gotp.Exit:
 				// We have an Exit message
-				if msg.PID() == s.process.PID() {
+				if msg.ID() == p.ID() {
 					// We have been asked to terminate
 					return msg.Unwrap()
 				}
@@ -177,21 +187,24 @@ func (s *Server[I, Cl, R, Cs, Ct]) loop(sig chan struct{}) gotp.RunFn {
 			case call[Cl, R]:
 				// We have a synchronous call and a chan to close after conditionally sending a
 				// response back to the caller.
-				switch resp, cont, reason = s.server.HandleCall(msg.req, msg.from); resp.atom {
-				case NO_REPLY:
-					// We have been asked to not send a response back to the caller so just close
-					// the resp chan.
-					close(msg.resp)
+				resp, cont, reason = s.server.HandleCall(msg.req, msg.from)
+				if reason == nil {
+					switch resp.atom {
+					case NO_REPLY:
+						// We have been asked to not send a response back to the caller so just close
+						// the resp chan.
+						close(msg.resp)
 
-				case REPLY:
-					// We have been asked to send a response back to the caller.
-					msg.resp <- resp.resp
-					close(msg.resp)
+					case REPLY:
+						// We have been asked to send a response back to the caller.
+						msg.resp <- resp.resp
+						close(msg.resp)
+					}
 				}
 
 			case cast[Cs]:
 				// We have an asynchronous call
-				cont, reason = s.server.HandleCast(msg.cast)
+				cont, reason = s.server.HandleCast(msg.req)
 
 			default:
 				// We have an Info or some other message that we don't know how to handle.

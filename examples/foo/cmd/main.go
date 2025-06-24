@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log/slog"
 
 	"github.com/Morgahl/gotp/internal/grts"
@@ -15,11 +16,9 @@ func init() {
 
 func main() {
 	slog.Info("main: starting application",
-		// "name", foo.FooApplication{}.Name(),
-		// "version", foo.FooApplication{}.Version())
-		slog.Any("name", foo.FooApplication{}.Name()),
-		slog.Any("version", foo.FooApplication{}.Version()),
-	)
-	reason := grts.Run(foo.FooApplication{})
+		slog.Any("name", foo.WarGamesApplication{}.Name()),
+		slog.Any("version", foo.WarGamesApplication{}.Version()))
+	reason := grts.Run(foo.WarGamesApplication{})
 	slog.Info("main: application exited", slog.Any("reason", reason))
+	fmt.Println(reason)
 }

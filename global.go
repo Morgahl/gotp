@@ -2,19 +2,18 @@ package gotp
 
 import (
 	"fmt"
-	"log/slog"
 	"sync/atomic"
 	"time"
 )
 
 var (
-	localID  uint64 = 0
-	serial   uint32 = 0
-	registry Registry[PID]
+	localID     uint64 = 0
+	serial      uint32 = 0
+	pidRegistry Registry[PID, *Process]
 )
 
 func init() {
-	registry = *New[PID]()
+	pidRegistry = *New[PID, *Process]()
 }
 
 func nextPID() PID {
@@ -31,28 +30,37 @@ func stepSerial() {
 	atomic.StoreUint64(&localID, 0)
 }
 
-func register(p Started) func() {
-	pid := p.PID()
-	registry.Put(pid, p)
+func register(p *Process) func() {
+	pidRegistry.Put(p)
 	return func() {
-		registry.Delete(pid)
+		pidRegistry.Delete(p)
 	}
 }
 
-func Send(pid PID, msg Msg, timeout time.Duration) error {
-	if proc, exists := registry.Get(pid); exists {
-		slog.Debug("global.Send", slog.Any("pid", pid), slog.Any("msg", fmt.Sprintf("%v", msg)))
-		return proc.Send(msg, timeout)
+func Send(pid PID, msg Msg) {
+	if proc, exists := pidRegistry.GetByID(pid); exists {
+		proc.Send(msg)
 	}
-	return NewUnknownPID(pid)
 }
 
-func SendAfter(pid PID, msg Msg, after time.Duration) (*time.Timer, error) {
-	if proc, exists := registry.Get(pid); exists {
-		slog.Debug("global.SendAfter", slog.Any("pid", pid), slog.Any("msg", fmt.Sprintf("%v", msg)), slog.Duration("after", after))
+func SendNamed(name Atom, msg Msg) {
+	if proc, exists := pidRegistry.GetByName(name); exists {
+		proc.Send(msg)
+	}
+}
+
+func SendAfter(pid PID, msg Msg, after time.Duration) *time.Timer {
+	if proc, exists := pidRegistry.GetByID(pid); exists {
 		return proc.SendAfter(msg, after)
 	}
-	return nil, NewUnknownPID(pid)
+	return nil
+}
+
+func SendNamedAfter(name Atom, msg Msg, after time.Duration) *time.Timer {
+	if proc, exists := pidRegistry.GetByName(name); exists {
+		return proc.SendAfter(msg, after)
+	}
+	return nil
 }
 
 type UnknownPID struct {

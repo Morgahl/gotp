@@ -1,8 +1,6 @@
 package agent
 
 import (
-	"time"
-
 	"github.com/Morgahl/gotp"
 	"github.com/Morgahl/gotp/server"
 )
@@ -23,18 +21,18 @@ func StartLink[T any](initFn InitFn[T], link gotp.PID, opts ...gotp.SpawnOpt) (*
 	return s.(*server.Server[any, any, T, any, any]), nil
 }
 
-func Cast[T any](to gotp.PID, msg UpdateFn[T], timeout time.Duration) error {
-	return server.Cast[gotp.Msg](to, msg, timeout)
+func Cast[T any](to gotp.PID, msg UpdateFn[T]) {
+	server.Cast[gotp.Msg](to, msg)
 }
 
-func Get[T any](to, from gotp.PID, msg GetFn[T], timeout time.Duration) (T, bool, error) {
-	return server.Call[gotp.Msg, T](to, from, msg, timeout)
+func Get[T any](to, from gotp.PID, msg GetFn[T]) (T, bool) {
+	return server.Call[gotp.Msg, T](to, from, msg)
 }
 
-func GetAndUpdate[T any](to, from gotp.PID, msg GetAndUpdateFn[T], timeout time.Duration) (T, bool, error) {
-	return server.Call[gotp.Msg, T](to, from, msg, timeout)
+func GetAndUpdate[T any](to, from gotp.PID, msg GetAndUpdateFn[T]) (T, bool) {
+	return server.Call[gotp.Msg, T](to, from, msg)
 }
 
-func Update[T any](to gotp.PID, msg UpdateFn[T], timeout time.Duration) error {
-	return server.Cast[gotp.Msg](to, msg, timeout)
+func Update[T any](to gotp.PID, msg UpdateFn[T]) {
+	server.Cast[gotp.Msg](to, msg)
 }

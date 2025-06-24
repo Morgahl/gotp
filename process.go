@@ -1,6 +1,7 @@
 package gotp
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/Morgahl/gotp/debug"
@@ -11,9 +12,9 @@ type Startable interface {
 }
 
 type Started interface {
-	PID() PID
-	Send(Msg, time.Duration) error
-	SendAfter(Msg, time.Duration) (*time.Timer, error)
+	ID() PID
+	Send(Msg)
+	SendAfter(Msg, time.Duration) *time.Timer
 }
 
 type RunFn func(*Process) error
@@ -21,6 +22,7 @@ type RunFn func(*Process) error
 type Process struct {
 	pid    PID
 	linked PID
+	runFn  RunFn
 
 	mailbox     Mailbox[Msg]
 	mbSize      int
@@ -29,17 +31,33 @@ type Process struct {
 
 func Spawn(fn RunFn, opts ...SpawnOpt) *Process {
 	p := build(opts)
-	p.deregHandle = register(p)
-	go p.run(fn)
+	p.runFn = fn
 	return p
 }
 
-func SpawnLink(fn RunFn, link PID, opts ...SpawnOpt) *Process {
-	p := build(append(opts, Link(link)))
+func (p *Process) Start() {
+	if p.deregHandle != nil {
+		panic("Process already started")
+	}
 	p.deregHandle = register(p)
-	go p.run(fn)
-	return p
+	go p.run()
 }
+
+// func Spawn(fn RunFn, opts ...SpawnOpt) *Process {
+// 	p := build(opts)
+// 	p.runFn = fn
+// 	p.deregHandle = register(p)
+// 	go p.run()
+// 	return p
+// }
+
+// func SpawnLink(fn RunFn, link PID, opts ...SpawnOpt) *Process {
+// 	p := build(append(opts, Link(link)))
+// 	p.runFn = fn
+// 	p.deregHandle = register(p)
+// 	go p.run()
+// 	return p
+// }
 
 func build(opts []SpawnOpt) *Process {
 	p := &Process{
@@ -53,7 +71,7 @@ func build(opts []SpawnOpt) *Process {
 	return p
 }
 
-func (p *Process) run(fn RunFn) {
+func (p *Process) run() {
 	var reason error
 	defer func() {
 		if r := recover(); r != nil {
@@ -64,31 +82,33 @@ func (p *Process) run(fn RunFn) {
 			p.deregHandle = nil
 		}
 		if !p.linked.IsZero() {
-			_ = Send(p.linked, NewExit(p.pid, reason), 0)
+			Send(p.linked, NewExit(p.pid, reason))
 		}
 	}()
-	reason = fn(p)
+	reason = p.runFn(p)
 }
 
-func (p *Process) Exit(reason error, timeout time.Duration) error {
-	return p.mailbox.Send(NewExit(p.pid, reason), timeout)
+func (p Process) String() string {
+	return fmt.Sprintf("Process[%T](pid: %s, linked: %s, mailbox size: %d, deregHandle: %t)",
+		p, p.pid, p.linked, p.mbSize, p.deregHandle != nil)
 }
 
-func (p *Process) PID() PID {
+func (p *Process) Exit(reason error) {
+	p.mailbox.Send(NewExit(p.pid, reason))
+}
+
+func (p *Process) ID() PID {
 	return p.pid
 }
 
-func (p *Process) Send(msg Msg, timeout time.Duration) error {
-	return p.mailbox.Send(msg, timeout)
+func (p *Process) Send(msg Msg) {
+	p.mailbox.Send(msg)
 }
 
-func (p *Process) SendAfter(msg Msg, after time.Duration) (*time.Timer, error) {
-	if p.mailbox.ch == nil {
-		return nil, NewNotStarted()
-	}
+func (p *Process) SendAfter(msg Msg, after time.Duration) *time.Timer {
 	return time.AfterFunc(after, func() {
-		_ = p.Send(msg, 0)
-	}), nil
+		p.mailbox.Send(msg)
+	})
 }
 
 func (p *Process) Receive() <-chan Msg {

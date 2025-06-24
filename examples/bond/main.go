@@ -1,9 +1,9 @@
 package main
 
 import (
-	"fmt"
 	"log/slog"
 	"math/rand"
+	"time"
 
 	"github.com/Morgahl/gotp"
 	"github.com/Morgahl/gotp/agent"
@@ -15,39 +15,38 @@ func init() {
 }
 
 func main() {
+	start := time.Now()
 	agent, err := newAgent(baseline(100.0))
 	if err != nil {
 		panic(err)
 	}
 	slog.Info("Running missions with agent", "pid", agent.pid)
-	count := runMissions(agent, rand.Intn(10)+5)
+	count := rand.Intn(10) + 5
+	runMissions(agent, count)
 	slog.Info("Completed missions", "count", count)
-	value, err := agent.EvaluatePerformance()
-	if err != nil {
-		panic(err)
-	}
-	slog.Info("Performance Evaluation", "result", value/float64(count+1))
+	value := agent.EvaluatePerformance()
+	slog.Info("Performance Evaluation", "result", value/float64(count+1), "took", time.Since(start))
 }
 
 func baseline[N number](base N) agent.InitFn[N] {
 	if base <= 0 {
-		base = 1 // Ensure a positive baseline
+		base = 1
 	}
 	return func() *N {
 		return &base
 	}
 }
 
-func runMissions(agent *Agent[float64], numMissions int) int {
+func runMissions(agent *Agent[float64], numMissions int) {
 	for i := 0; i < numMissions; i++ {
-		slog.Info("Running mission", "mission", i+1)
-		score := (rand.Float64() * 50) + 50
-		loss := rand.Float64() * 50
+		// slog.Info("Running mission", "mission", i+1)
+		score := (rand.Float64() * 25) + 75
+		loss := rand.Float64() * 25
+		// slog.Info("Submitting report", "mission", i+1, "score", score, "loss", loss, "net", score-loss)
 		agent.LogMissionObjectives(score)
 		agent.LogMissionAttrition(loss)
-		slog.Info("Mission completed", "mission", i+1, "score", score, "loss", loss, "net", score-loss)
+		// slog.Info("Mission report submitted", "mission", i+1)
 	}
-	return numMissions
 }
 
 type number interface {
@@ -65,32 +64,33 @@ func newAgent[N number](initFn agent.InitFn[N]) (*Agent[N], error) {
 	if err != nil {
 		return nil, err
 	}
-	c := &Agent[N]{pid: server.PID()}
+	c := &Agent[N]{pid: server.ID()}
 	return c, nil
 }
 
-func (c *Agent[N]) LogMissionObjectives(n N) error {
-	if n <= 0 {
-		return fmt.Errorf("increment value must be greater than zero")
+func (c *Agent[N]) LogMissionObjectives(n N) {
+	if n < 0 {
+		n = 0
 	}
-	return agent.Update(c.pid, func(state *N) {
+	agent.Update(c.pid, func(state *N) {
 		*state += n
-	}, 0)
+		slog.Debug("Logged mission objectives result", "result", n, "state", *state)
+	})
 }
 
-func (c *Agent[N]) LogMissionAttrition(n N) error {
-	if n <= 0 {
-		return fmt.Errorf("decrement value must be greater than zero")
+func (c *Agent[N]) LogMissionAttrition(n N) {
+	if n < 0 {
+		n = 0
 	}
-	return agent.Update(c.pid, func(state *N) {
+	agent.Update(c.pid, func(state *N) {
 		*state -= n
-	}, 0)
+		slog.Debug("Logged mission attrition result", "result", n, "state", *state)
+	})
 }
 
-func (c *Agent[N]) EvaluatePerformance() (n N, err error) {
-	n, _, err = agent.Get(c.pid, gotp.PIDZero(), func(state N) N {
+func (c *Agent[N]) EvaluatePerformance() (n N) {
+	n, _ = agent.Get(c.pid, c.pid, func(state N) N {
 		return state
-	}, 0)
-
+	})
 	return
 }

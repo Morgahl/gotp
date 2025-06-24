@@ -29,11 +29,14 @@ func NewExit(pid PID, reason error) Exit {
 	return Exit{pid, reason}
 }
 
-func (e Exit) PID() PID {
+func (e Exit) ID() PID {
 	return e.pid
 }
 
 func (e Exit) Error() string {
+	if e.reason == nil {
+		return fmt.Sprintf("Exit{%s}", e.pid)
+	}
 	return fmt.Sprintf("Exit{%s, reason: %s}", e.pid, e.reason)
 }
 

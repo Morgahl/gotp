@@ -24,7 +24,7 @@ type Serverable[
 }
 
 const (
-	DEFAULT_SHUTDOWN = 5 * time.Second
+	DEFAULT_SHUTDOWN = 30 * time.Second
 )
 
 // OptionalCallbacks provides default implementations for the Serverable interface methods that log a warning when not
