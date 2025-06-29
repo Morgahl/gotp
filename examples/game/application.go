@@ -5,7 +5,6 @@ import (
 
 	"github.com/Morgahl/gotp"
 	"github.com/Morgahl/gotp/application"
-	"github.com/Morgahl/gotp/debug"
 	"github.com/Morgahl/gotp/supervisor"
 )
 
@@ -52,7 +51,7 @@ func (f Game) Start(st application.StartType) (gotp.Supervisable, error) {
 	} else if _, ok := st.IsTakeover(); ok {
 		return nil, errors.New("takeover not supported in Game")
 	}
-	panic(debug.ThrowF("unknown start type: %s", st))
+	return nil, errors.New("unknown start type")
 }
 
 func (Game) assignCrew(n gotp.Atom) []gotp.Supervisable {

@@ -140,9 +140,7 @@ func (s *Server[I, Cl, R, Cs, Ct]) loop(sig chan error) gotp.RunFn {
 		var cont Continue[Ct]
 		var resp Response[R]
 		defer func() {
-			if r := recover(); r != nil {
-				reason = debug.Catch(reason, r)
-			}
+			reason = debug.Recover(recover(), "Server.loop", reason)
 			s.process.Exit(s.server.Terminate(reason))
 			if sig != nil && len(sig) < cap(sig) {
 				sig <- reason

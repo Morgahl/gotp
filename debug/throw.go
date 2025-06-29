@@ -4,50 +4,53 @@ import (
 	"fmt"
 	"log/slog"
 	"runtime"
+	"strings"
 )
 
+var (
+	thrownTypeString string
+)
+
+func init() {
+	thrownTypeString = fmt.Sprintf("%T", Thrown{})
+}
+
 type Thrown struct {
-	Message string
-	Stack   []string
+	message string
+	stack   string
 }
 
 func (p Thrown) Error() string {
-	return fmt.Sprintf("%s\n\n%s", p.Message, p.Stack)
+	return fmt.Sprintf("%s\n\n%s", p.message, p.stack)
 }
 
 func (p Thrown) LogValue() slog.Value {
 	return slog.GroupValue(
-		slog.String("message", p.Message),
-		slog.Any("stack", p.Stack))
+		slog.String("type", thrownTypeString),
+		slog.String("message", p.message),
+		slog.Any("stack", p.stack))
 }
 
-//go:noreturn
-func Throw(message string) Thrown {
-	return Thrown{
-		Message: message,
-		Stack:   callerStack(3)}
+func Throw(format string, args ...any) {
+	throw(1, format, args...)
 }
 
-//go:noreturn
-func ThrowF(format string, args ...any) Thrown {
-	return Thrown{
-		Message: fmt.Sprintf(format, args...),
-		Stack:   callerStack(3)}
+func throw(skip int, format string, args ...any) {
+	panic(Thrown{
+		message: fmt.Sprintf(format, args...),
+		stack:   callerStack(skip + 3)})
 }
 
-func callerStack(skip int) []string {
-	const depth = 32
+func callerStack(skip int) string {
+	const depth = 36
 	var pcs [depth]uintptr
 	n := runtime.Callers(skip, pcs[:])
 	frames := runtime.CallersFrames(pcs[:n])
 
-	var b = make([]string, 0, 10)
-	for {
-		frame, more := frames.Next()
-		b = append(b, fmt.Sprintf("%s\n\t%s:%d\n", frame.Function, frame.File, frame.Line))
-		if !more {
-			break
-		}
+	var b strings.Builder
+	b.Grow(64 * depth)
+	for frame, more := frames.Next(); more; frame, more = frames.Next() {
+		fmt.Fprintf(&b, "%s\n\t%s:%d\n", frame.Function, frame.File, frame.Line)
 	}
-	return b[:len(b):len(b)]
+	return b.String()
 }

@@ -74,9 +74,7 @@ func build(opts []SpawnOpt) *Process {
 func (p *Process) run() {
 	var reason error
 	defer func() {
-		if r := recover(); r != nil {
-			reason = debug.Catch(reason, r)
-		}
+		reason = debug.Recover(recover(), "Process.run", reason)
 		if p.deregHandle != nil {
 			p.deregHandle()
 			p.deregHandle = nil

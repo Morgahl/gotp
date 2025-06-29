@@ -34,9 +34,7 @@ func _init(rootCtx ctx.Cancellable, app application.Application, wg *sync.WaitGr
 	return func(p *gotp.Process) (reason error) {
 		defer wg.Done()
 		defer func() {
-			if r := recover(); r != nil {
-				reason = debug.Catch(reason, r)
-			}
+			reason = debug.Recover(recover(), "grts._init", reason)
 			rootCtx.Cancel(reason)
 		}()
 
