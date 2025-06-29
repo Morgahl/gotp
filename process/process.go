@@ -2,35 +2,12 @@ package process
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
 	"github.com/Morgahl/gotp/debug"
 )
-
-type Ref struct {
-	pid    PID
-	sendFn func(s signal[Message])
-}
-
-func (r *Ref) IsValid() bool {
-	return r.sendFn != nil
-}
-
-func (r *Ref) Send(m Message) (err error) {
-	return r.send(messageSignal(NO_FLAGS, m))
-}
-
-func (r *Ref) send(s signal[Message]) (err error) {
-	defer func() {
-		err = debug.Recover(recover(), "*Ref.send", err)
-	}()
-	if r.sendFn == nil {
-		return errors.New("*Ref.send: bad ref")
-	}
-	r.sendFn(s)
-	return nil
-}
 
 type processState uint8
 
@@ -41,13 +18,28 @@ const (
 	EXITED_STATE
 )
 
-type Process struct {
-	pid       PID
-	stateLock sync.RWMutex
-	state     processState
+func (s processState) String() string {
+	switch s {
+	case STARTING_STATE:
+		return "STARTING"
+	case STARTED_STATE:
+		return "STARTED"
+	case EXITING_STATE:
+		return "EXITING"
+	case EXITED_STATE:
+		return "EXITED"
+	default:
+		debug.Throw("processState.String: unknown process state: %d", s)
+		return "UNKNOWN"
+	}
+}
 
-	// TODO: Actual Process flags
-	// flags flags
+type Process struct {
+	pid        PID
+	flags      processFlags
+	stateLock  sync.RWMutex
+	state      processState
+	exitReason fmt.Stringer
 
 	// process management structures; must hold p.stateLock to access or modify these as appropriate
 	groupLeader PID
@@ -146,9 +138,50 @@ func (p *Process) unlink(re *Ref) {
 }
 
 // this must always be called while the stateLock is at least read-locked and the mailboxLock is write-locked
-func (p *Process) exit(e Exit) {
-	// TODO: EXIT HANDLING
-	panic("TODO: process.exit: not implemented")
+func (p *Process) handleExitSignal(f signalFlags, e exit) {
+	linked := f.IsLink()
+	linkFound := p.links.contains(e.Receiver)
+	trappingExits := p.flags.IsTrapExit()
+	samePid := e.Sender.pid == e.Receiver.pid
+	// Silently drop the exit signal if:
+	// - it is a link signal and the receiver is not linked to the sender
+	// - it is a normal exit and the process is not trapping exits and the sender
+	//   is not the same as the receiver
+	if (linked && !linkFound) ||
+		(e.Reason == KILL && !trappingExits && !samePid) {
+		return
+	}
+
+	// Terminate the receiving process if:
+	// - it is not a link signal and the exit is `kill`; the receiver is killed with the `killed` reason
+	// - the process is not trapping exits, the exit reason is something other than `normal`
+	// - the exit reason is `normal` and the sender is the same as the receiver and the link flag is not set
+	if !linked && e.Reason == KILL {
+		p.state = EXITING_STATE
+		p.exitReason = KILLED
+		return
+	} else if !trappingExits && e.Reason != NORMAL {
+		p.state = EXITING_STATE
+		p.exitReason = e.Reason
+		return
+	} else if e.Reason == NORMAL && samePid && !linked {
+		p.state = EXITING_STATE
+		p.exitReason = NORMAL
+		return
+	}
+
+	// The exit is converted to e message and pushed to the mailbox if the process is trapping exits and the link flag
+	// is:
+	// - not set, and the exit reason is not `kill`
+	// - set, the receiver is linked to the sender
+	if trappingExits ||
+		(!linked && e.Reason != KILL) ||
+		(linked && linkFound) {
+		p.pushMessage(Exit{
+			Sender: e.Sender,
+			Reason: e.Reason,
+		})
+	}
 }
 
 // this must always be called while the stateLock is at least read-locked and the mailboxLock is write-locked
@@ -207,8 +240,8 @@ func (p *Process) handleSignal(s signal[Message]) {
 			re := debug.AssertType[*Ref](s.message, "process.handleSignal: expected *Ref for UNLINK_SIGNAL, got %T", s.message)
 			p.unlink(re)
 		case EXIT_SIGNAL:
-			e := debug.AssertType[Exit](s.message, "process.handleSignal: expected exit for EXIT_SIGNAL, got %T", s.message)
-			p.exit(e)
+			e := debug.AssertType[exit](s.message, "process.handleSignal: expected exit for EXIT_SIGNAL, got %T", s.message)
+			p.handleExitSignal(s.flags, e)
 		case MONITOR_SIGNAL:
 			re := debug.AssertType[*Ref](s.message, "process.handleSignal: expected *Ref for MONITOR_SIGNAL, got %T", s.message)
 			p.monitor(re)

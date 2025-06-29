@@ -4,16 +4,68 @@ import (
 	"github.com/Morgahl/gotp/debug"
 )
 
-type flags uint8
+type processFlags uint8
 
 const (
-	NO_FLAGS  flags = 0
-	LINK_FLAG flags = 1 << iota
+	// NO_PROCESS_FLAGS is used to indicate that no flags are set and is used as a default value
+	NO_PROCESS_FLAGS processFlags = 0
+
+	// SENSITIVE_FLAG is used to indicate that the process is sensitive for logging and inspection purposes
+	SENSITIVE_FLAG processFlags = 1 << iota
+
+	// TRAP_EXIT_FLAG is used to indicate that the process should trap exit signals
+	TRAP_EXIT_FLAG
+)
+
+func (f processFlags) IsSensitive() bool {
+	return f&SENSITIVE_FLAG != 0
+}
+
+func (f processFlags) IsTrapExit() bool {
+	return f&TRAP_EXIT_FLAG != 0
+}
+
+type signalFlags uint8
+
+const (
+	// NO_FLAGS is used to indicate that no flags are set and is used as a default value
+	NO_FLAGS signalFlags = 0
+
+	// LINK_FLAG is used to indicate that the signal is due to a link or unlink operation
+	LINK_FLAG signalFlags = 1 << iota
+
+	// MONITOR_FLAG is used to indicate that the signal is due to a monitor or de-monitor operation
 	MONITOR_FLAG
+
+	// CAST_FLAG is used to indicate that the signal is a cast message, i.e. it does not expect a reply
 	CAST_FLAG
+
+	// REQUEST_FLAG is used to indicate that the signal is a request message, i.e. it expects a reply
 	REQUEST_FLAG
+
+	// RESPONSE_FLAG is used to indicate that the signal is a response to a request message
 	RESPONSE_FLAG
 )
+
+func (f signalFlags) IsLink() bool {
+	return f&LINK_FLAG != 0
+}
+
+func (f signalFlags) IsMonitor() bool {
+	return f&MONITOR_FLAG != 0
+}
+
+func (f signalFlags) IsCast() bool {
+	return f&CAST_FLAG != 0
+}
+
+func (f signalFlags) IsRequest() bool {
+	return f&REQUEST_FLAG != 0
+}
+
+func (f signalFlags) IsResponse() bool {
+	return f&RESPONSE_FLAG != 0
+}
 
 type signalType uint8
 

@@ -1,12 +1,14 @@
 package process
 
+import "fmt"
+
 type signal[M Message] struct {
 	_type   signalType
-	flags   flags
+	flags   signalFlags
 	message M
 }
 
-func messageSignal[M Message](flags flags, message M) signal[M] {
+func messageSignal[M Message](flags signalFlags, message M) signal[M] {
 	return signal[M]{
 		_type:   MESSAGE_SIGNAL,
 		flags:   flags,
@@ -14,7 +16,7 @@ func messageSignal[M Message](flags flags, message M) signal[M] {
 	}
 }
 
-func linkSignal(flags flags, link *Ref) signal[Message] {
+func linkSignal(flags signalFlags, link *Ref) signal[Message] {
 	return signal[Message]{
 		_type:   LINK_SIGNAL,
 		flags:   flags | LINK_FLAG,
@@ -22,7 +24,7 @@ func linkSignal(flags flags, link *Ref) signal[Message] {
 	}
 }
 
-func unlinkSignal(flags flags, unlink *Ref) signal[Message] {
+func unlinkSignal(flags signalFlags, unlink *Ref) signal[Message] {
 	return signal[Message]{
 		_type:   UNLINK_SIGNAL,
 		flags:   flags | LINK_FLAG,
@@ -30,17 +32,17 @@ func unlinkSignal(flags flags, unlink *Ref) signal[Message] {
 	}
 }
 
-type Exit struct {
-	Sender   PID
-	Receiver PID
-	Reason   error
+type exit struct {
+	Sender   *Ref
+	Receiver *Ref
+	Reason   fmt.Stringer
 }
 
-func exitSignal[M Message](flags flags, sender, receiver PID, reason error) signal[Message] {
+func exitSignal(flags signalFlags, sender, receiver *Ref, reason fmt.Stringer) signal[Message] {
 	return signal[Message]{
 		_type: EXIT_SIGNAL,
 		flags: flags,
-		message: Exit{
+		message: exit{
 			Sender:   sender,
 			Receiver: receiver,
 			Reason:   reason,
@@ -48,7 +50,7 @@ func exitSignal[M Message](flags flags, sender, receiver PID, reason error) sign
 	}
 }
 
-func monitorSignal(flags flags, monitor *Ref) signal[Message] {
+func monitorSignal(flags signalFlags, monitor *Ref) signal[Message] {
 	return signal[Message]{
 		_type:   MONITOR_SIGNAL,
 		flags:   flags | MONITOR_FLAG,
@@ -56,18 +58,12 @@ func monitorSignal(flags flags, monitor *Ref) signal[Message] {
 	}
 }
 
-func deMonitorSignal[M Message](flags flags, deMonitor *Ref) signal[Message] {
+func deMonitorSignal[M Message](flags signalFlags, deMonitor *Ref) signal[Message] {
 	return signal[Message]{
 		_type:   DE_MONITOR_SIGNAL,
 		flags:   flags | MONITOR_FLAG,
 		message: deMonitor,
 	}
-}
-
-type Down struct {
-	From   PID
-	Ref    *Ref
-	Reason error
 }
 
 func downSignal(from PID, re *Ref, reason error) signal[Message] {
