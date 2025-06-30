@@ -7,18 +7,16 @@ import (
 )
 
 var (
-	recoveredTypeString string
-)
-
-func init() {
 	recoveredTypeString = fmt.Sprintf("%T", Recovered{})
-}
+)
 
 type Recovered struct {
 	message string
 	err     error
 	r       error
 }
+
+func Drop(r any) {}
 
 func Recover(r any, message string, err error) error {
 	if r == nil {

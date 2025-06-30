@@ -1,7 +1,34 @@
 package process
 
 import (
+	"github.com/Morgahl/gotp"
 	"github.com/Morgahl/gotp/debug"
+)
+
+const (
+	KILL                    gotp.Atom = "kill"
+	KILLED                  gotp.Atom = "killed"
+	NORMAL                  gotp.Atom = "normal"
+	MESSAGE                 gotp.Atom = "message"
+	LINK                    gotp.Atom = "link"
+	UNLINK                  gotp.Atom = "unlink"
+	EXIT                    gotp.Atom = "exit"
+	MONITOR                 gotp.Atom = "monitor"
+	DEMONITOR               gotp.Atom = "demonitor"
+	DOWN                    gotp.Atom = "down"
+	GROUP_LEADER            gotp.Atom = "group_leader"
+	ALIVE_REQUEST           gotp.Atom = "alive_request"
+	ALIVE_REPLY             gotp.Atom = "alive_reply"
+	SPAWN_REQUEST           gotp.Atom = "spawn_request"
+	SPAWN_REPLY             gotp.Atom = "spawn_reply"
+	PROCESS_INFO_REQUEST    gotp.Atom = "process_info_request"
+	PROCESS_INFO_REPLY      gotp.Atom = "process_info_reply"
+	REGISTER_NAME_REQUEST   gotp.Atom = "register_name_request"
+	REGISTER_NAME_REPLY     gotp.Atom = "register_name_reply"
+	UNREGISTER_NAME_REQUEST gotp.Atom = "unregister_name_request"
+	UNREGISTER_NAME_REPLY   gotp.Atom = "unregister_name_reply"
+	WHERE_IS_REQUEST        gotp.Atom = "where_is_request"
+	WHERE_IS_REPLY          gotp.Atom = "where_is_reply"
 )
 
 type processFlags uint8
@@ -132,47 +159,51 @@ const (
 )
 
 func (s signalType) String() string {
+	return s.Atom().String()
+}
+
+func (s signalType) Atom() gotp.Atom {
 	switch s {
 	case MESSAGE_SIGNAL:
-		return "message"
+		return MESSAGE
 	case LINK_SIGNAL:
-		return "link"
+		return LINK
 	case UNLINK_SIGNAL:
-		return "unlink"
+		return UNLINK
 	case EXIT_SIGNAL:
-		return "exit"
+		return EXIT
 	case MONITOR_SIGNAL:
-		return "monitor"
+		return MONITOR
 	case DE_MONITOR_SIGNAL:
-		return "demonitor"
+		return DEMONITOR
 	case DOWN_SIGNAL:
-		return "down"
+		return DOWN
 	case GROUP_LEADER_SIGNAL:
-		return "group_leader"
+		return GROUP_LEADER
 	case SPAWN_REQUEST_SIGNAL:
-		return "spawn_request"
+		return SPAWN_REQUEST
 	case SPAWN_REPLY_SIGNAL:
-		return "spawn_reply"
+		return SPAWN_REPLY
 	case ALIVE_REQUEST_SIGNAL:
-		return "alive_request"
+		return ALIVE_REQUEST
 	case ALIVE_REPLY_SIGNAL:
-		return "alive_reply"
+		return ALIVE_REPLY
 	case PROCESS_INFO_REQUEST_SIGNAL:
-		return "process_info_request"
+		return PROCESS_INFO_REQUEST
 	case PROCESS_INFO_REPLY_SIGNAL:
-		return "process_info_reply"
+		return PROCESS_INFO_REPLY
 	case REGISTER_NAME_REQUEST_SIGNAL:
-		return "register_name_request"
+		return REGISTER_NAME_REQUEST
 	case REGISTER_NAME_REPLY_SIGNAL:
-		return "register_name_reply"
+		return REGISTER_NAME_REPLY
 	case UNREGISTER_NAME_REQUEST_SIGNAL:
-		return "unregister_name_request"
+		return UNREGISTER_NAME_REQUEST
 	case UNREGISTER_NAME_REPLY_SIGNAL:
-		return "unregister_name_reply"
+		return UNREGISTER_NAME_REPLY
 	case WHERE_IS_REQUEST_SIGNAL:
-		return "where_is_request"
+		return WHERE_IS_REQUEST
 	case WHERE_IS_REPLY_SIGNAL:
-		return "where_is_reply"
+		return WHERE_IS_REPLY
 	default:
 		debug.Throw("process.signalType.String: unknown signal type %d", s)
 		panic("unreachable")

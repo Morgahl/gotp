@@ -16,18 +16,18 @@ func messageSignal[M Message](flags signalFlags, message M) signal[M] {
 	}
 }
 
-func linkSignal(flags signalFlags, link *Ref) signal[Message] {
+func linkSignal(link *Ref) signal[Message] {
 	return signal[Message]{
 		_type:   LINK_SIGNAL,
-		flags:   flags | LINK_FLAG,
+		flags:   LINK_FLAG | CAST_FLAG,
 		message: link,
 	}
 }
 
-func unlinkSignal(flags signalFlags, unlink *Ref) signal[Message] {
+func unlinkSignal(unlink *Ref) signal[Message] {
 	return signal[Message]{
 		_type:   UNLINK_SIGNAL,
-		flags:   flags | LINK_FLAG,
+		flags:   LINK_FLAG | CAST_FLAG,
 		message: unlink,
 	}
 }
@@ -50,18 +50,18 @@ func exitSignal(flags signalFlags, sender, receiver *Ref, reason fmt.Stringer) s
 	}
 }
 
-func monitorSignal(flags signalFlags, monitor *Ref) signal[Message] {
+func monitorSignal(monitor *Ref) signal[Message] {
 	return signal[Message]{
 		_type:   MONITOR_SIGNAL,
-		flags:   flags | MONITOR_FLAG,
+		flags:   MONITOR_FLAG | CAST_FLAG,
 		message: monitor,
 	}
 }
 
-func deMonitorSignal[M Message](flags signalFlags, deMonitor *Ref) signal[Message] {
+func deMonitorSignal[M Message](deMonitor *Ref) signal[Message] {
 	return signal[Message]{
 		_type:   DE_MONITOR_SIGNAL,
-		flags:   flags | MONITOR_FLAG,
+		flags:   MONITOR_FLAG | CAST_FLAG,
 		message: deMonitor,
 	}
 }

@@ -42,7 +42,7 @@ type Process struct {
 	exitReason fmt.Stringer
 
 	// process management structures; must hold p.stateLock to access or modify these as appropriate
-	groupLeader PID
+	groupLeader *Ref
 	links       refMap
 	monitors    refMap
 
@@ -53,11 +53,9 @@ type Process struct {
 	messageSkips []int
 
 	// message passing structures
-	// TODO: we should consider a more sophisticated mailbox structure better supporting concurrent receive and send
-	// TODO: operations. This will eventually cause contention when many processes are sending messages to the same
-	// TODO: process
-	mailboxLock sync.Mutex
-	mailbox     []Message
+	mailboxMu  sync.RWMutex
+	mailbox    []Message
+	signalChan chan signal[Message]
 }
 
 // TODO: Spawn options
@@ -65,20 +63,36 @@ func newProcess[M Message](pid PID, gcInterval time.Duration) *Process {
 	debug.Assert(!pid.IsZero(), "newProcess: pid cannot be zero")
 	debug.Assert(gcInterval >= 0, "newProcess: gcInterval cannot be negative")
 	return &Process{
-		pid:         pid,
-		groupLeader: PIDZero(),
-		lastGC:      time.Now(),
-		gcInterval:  gcInterval,
+		pid:        pid,
+		lastGC:     time.Now(),
+		gcInterval: gcInterval,
+		mailbox:    make([]Message, 0, 16),
 	}
 }
 
 func (p *Process) Ref() *Ref {
-	return &Ref{pid: p.pid, sendFn: p.handleSignal}
+	return &Ref{
+		pid:    p.pid,
+		sendFn: func(s signal[Message]) { p.send(s) },
+	}
+}
+
+func (p *Process) send(s signal[Message]) {
+	p.stateLock.RLock()
+	switch p.state {
+	case STARTING_STATE, STARTED_STATE:
+		p.signalChan <- s
+	}
+	p.stateLock.RUnlock()
 }
 
 func (p *Process) maybeGarbageCollect() {
 	if p.shouldGarbageCollect() {
+		p.stateLock.RUnlock()
+		p.stateLock.Lock()
 		p.garbageCollect()
+		p.stateLock.Unlock()
+		p.stateLock.RLock()
 	}
 }
 
@@ -157,16 +171,28 @@ func (p *Process) handleExitSignal(f signalFlags, e exit) {
 	// - the process is not trapping exits, the exit reason is something other than `normal`
 	// - the exit reason is `normal` and the sender is the same as the receiver and the link flag is not set
 	if !linked && e.Reason == KILL {
+		p.stateLock.RUnlock()
+		p.stateLock.Lock()
 		p.state = EXITING_STATE
 		p.exitReason = KILLED
+		p.stateLock.Unlock()
+		p.stateLock.RLock()
 		return
 	} else if !trappingExits && e.Reason != NORMAL {
+		p.stateLock.RUnlock()
+		p.stateLock.Lock()
 		p.state = EXITING_STATE
 		p.exitReason = e.Reason
+		p.stateLock.Unlock()
+		p.stateLock.RLock()
 		return
 	} else if e.Reason == NORMAL && samePid && !linked {
+		p.stateLock.RUnlock()
+		p.stateLock.Lock()
 		p.state = EXITING_STATE
 		p.exitReason = NORMAL
+		p.stateLock.Unlock()
+		p.stateLock.RLock()
 		return
 	}
 
@@ -203,13 +229,10 @@ func (p *Process) down(down Down) {
 }
 
 // this must always be called while the stateLock is at least read-locked and the mailboxLock is write-locked
-func (p *Process) setGroupLeader(pid PID) {
-	if pid.IsZero() {
-		debug.Throw("process.setGroupLeader: cannot set group leader to zero PID")
-	}
+func (p *Process) setGroupLeader(re *Ref) {
 	// yes we can be set to ourselves by design, for instance the top supervisor in the
 	// [gotp/applicaiton.Application.Start] function will set itself as its own group leader.
-	p.groupLeader = pid
+	p.groupLeader = re
 }
 
 // this must always be called while the stateLock is at least read-locked and the mailboxLock is write-locked
@@ -226,44 +249,44 @@ func (p *Process) aliveReply(r Reply[error]) {
 	p.pushMessage(r)
 }
 
-// handleSignal is always called from a functions that has the mailboxLock write-locked
+// handleSignal is always called from a functions that has the mailboxLock write-locked as well as the stateLock read-locked.
 func (p *Process) handleSignal(s signal[Message]) {
-	defer p.maybeGarbageCollect()
 	p.stateLock.RLock()
+	defer p.stateLock.RUnlock()
+	defer p.maybeGarbageCollect()
 	switch p.state {
 	case STARTED_STATE:
 		switch s._type {
 		case LINK_SIGNAL:
-			re := debug.AssertType[*Ref](s.message, "process.handleSignal: expected *Ref for LINK_SIGNAL, got %T", s.message)
+			re := debug.AssertTypeNotZero[*Ref](s.message, "process.handleSignal: expected *Ref for LINK_SIGNAL, got %T", s.message)
 			p.link(re)
 		case UNLINK_SIGNAL:
-			re := debug.AssertType[*Ref](s.message, "process.handleSignal: expected *Ref for UNLINK_SIGNAL, got %T", s.message)
+			re := debug.AssertTypeNotZero[*Ref](s.message, "process.handleSignal: expected *Ref for UNLINK_SIGNAL, got %T", s.message)
 			p.unlink(re)
 		case EXIT_SIGNAL:
-			e := debug.AssertType[exit](s.message, "process.handleSignal: expected exit for EXIT_SIGNAL, got %T", s.message)
+			e := debug.AssertTypeNotZero[exit](s.message, "process.handleSignal: expected exit for EXIT_SIGNAL, got %T", s.message)
 			p.handleExitSignal(s.flags, e)
 		case MONITOR_SIGNAL:
-			re := debug.AssertType[*Ref](s.message, "process.handleSignal: expected *Ref for MONITOR_SIGNAL, got %T", s.message)
+			re := debug.AssertTypeNotZero[*Ref](s.message, "process.handleSignal: expected *Ref for MONITOR_SIGNAL, got %T", s.message)
 			p.monitor(re)
 		case DE_MONITOR_SIGNAL:
-			re := debug.AssertType[*Ref](s.message, "process.handleSignal: expected *Ref for DE_MONITOR_SIGNAL, got %T", s.message)
+			re := debug.AssertTypeNotZero[*Ref](s.message, "process.handleSignal: expected *Ref for DE_MONITOR_SIGNAL, got %T", s.message)
 			p.deMonitor(re)
 		case DOWN_SIGNAL:
-			down := debug.AssertType[Down](s.message, "process.handleSignal: expected exit for DOWN_SIGNAL, got %T", s.message)
+			down := debug.AssertTypeNotZero[Down](s.message, "process.handleSignal: expected exit for DOWN_SIGNAL, got %T", s.message)
 			p.down(down)
 		case GROUP_LEADER_SIGNAL:
-			pid := debug.AssertTypeNotZero[PID](s.message, "process.handleSignal: expected PID for GROUP_LEADER_SIGNAL, got %T", s.message)
-			p.setGroupLeader(pid)
+			re := debug.AssertTypeNotZero[*Ref](s.message, "process.handleSignal: expected *Ref for GROUP_LEADER_SIGNAL, got %T", s.message)
+			p.setGroupLeader(re)
 		case ALIVE_REQUEST_SIGNAL:
-			re := debug.AssertType[*Ref](s.message, "process.handleSignal: expected message for ALIVE_REQUEST_SIGNAL, got %T", s.message)
+			re := debug.AssertTypeNotZero[*Ref](s.message, "process.handleSignal: expected message for ALIVE_REQUEST_SIGNAL, got %T", s.message)
 			p.aliveRequest(re)
 		case ALIVE_REPLY_SIGNAL:
-			err := debug.AssertType[Reply[error]](s.message, "process.handleSignal: expected Reply[error] for ALIVE_REPLY_SIGNAL, got %T", s.message)
+			err := debug.AssertTypeNotZero[Reply[error]](s.message, "process.handleSignal: expected Reply[error] for ALIVE_REPLY_SIGNAL, got %T", s.message)
 			p.aliveReply(err)
 		case MESSAGE_SIGNAL:
 			p.pushMessage(s.message)
 		default:
-			p.stateLock.RUnlock()
 			// If this is ever hit we should either expect a bad implementation or a new signal type
 			// has been added that we don't handle yet.
 			debug.Throw("process.handleSignal: unknown signal type: %s", s._type)

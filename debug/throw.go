@@ -8,12 +8,8 @@ import (
 )
 
 var (
-	thrownTypeString string
-)
-
-func init() {
 	thrownTypeString = fmt.Sprintf("%T", Thrown{})
-}
+)
 
 type Thrown struct {
 	message string

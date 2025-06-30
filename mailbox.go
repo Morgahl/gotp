@@ -11,8 +11,6 @@ const (
 )
 
 type MailboxWeak = Mailbox[Msg]
-
-type Atom string
 type Mailbox[M Msg] struct {
 	ch chan M
 }
