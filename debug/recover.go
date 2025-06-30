@@ -25,7 +25,7 @@ func Recover(r any, message string, err error) error {
 	rec := Recovered{message: message, err: err}
 	switch v := r.(type) {
 	case Thrown:
-		rec.r = fmt.Errorf("%s: thrown: %w", message, v)
+		rec.r = v
 	case error:
 		rec.r = fmt.Errorf("%s: panic: %w", message, v)
 	default:

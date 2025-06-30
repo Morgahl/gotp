@@ -39,16 +39,21 @@ func ReceiveWithTimeout[M Message](p *Process, timeout time.Duration) (M, bool) 
 	if timeout > 0 {
 		after = time.After(timeout)
 	}
-	readOffset := 0
 
 	p.mailboxMu.Lock()
 	defer p.mailboxMu.Unlock()
+	var readOffset int
 	for {
 		switch p.state {
 		case STARTING_STATE, STARTED_STATE:
-			for i, m := range p.mailbox[readOffset:] {
+			for _, m := range p.mailbox[readOffset:] {
+				if m == nil {
+					readOffset++
+					continue
+				}
 				if mt, ok := m.(M); ok {
-					p.mailbox[i] = nil
+					p.mailbox[readOffset] = nil
+					p.messageSkips = append(p.messageSkips, readOffset)
 					return mt, true
 				}
 				readOffset++
@@ -74,6 +79,7 @@ func Receive[M Message](p *Process) (M, bool) {
 	p.stateLock.RLock()
 	defer p.stateLock.RUnlock()
 	defer p.maybeGarbageCollect()
+
 	p.mailboxMu.Lock()
 	defer p.mailboxMu.Unlock()
 
@@ -81,9 +87,14 @@ func Receive[M Message](p *Process) (M, bool) {
 	for {
 		switch p.state {
 		case STARTING_STATE, STARTED_STATE:
-			for i, m := range p.mailbox[readOffset:] {
+			for _, m := range p.mailbox[readOffset:] {
+				if m == nil {
+					readOffset++
+					continue
+				}
 				if mt, ok := m.(M); ok {
-					p.mailbox[i] = nil
+					p.mailbox[readOffset] = nil
+					p.messageSkips = append(p.messageSkips, readOffset)
 					return mt, true
 				}
 				readOffset++

@@ -3,6 +3,7 @@ package process
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -172,7 +173,7 @@ func (p *Process) garbageCollect() {
 
 	p.links.garbageCollect()
 	p.monitors.garbageCollect()
-
+	slices.Sort(p.messageSkips)
 	mailbox := p.mailbox[:0]
 	var mi, msi int
 	for ; mi < len(p.mailbox); mi++ {
