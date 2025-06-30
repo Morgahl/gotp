@@ -9,37 +9,16 @@ import (
 	"github.com/Morgahl/gotp/debug"
 )
 
-type processState uint8
-
-const (
-	STARTING_STATE processState = iota
-	STARTED_STATE
-	EXITING_STATE
-	EXITED_STATE
-)
-
-func (s processState) String() string {
-	switch s {
-	case STARTING_STATE:
-		return "STARTING"
-	case STARTED_STATE:
-		return "STARTED"
-	case EXITING_STATE:
-		return "EXITING"
-	case EXITED_STATE:
-		return "EXITED"
-	default:
-		debug.Throw("processState.String: unknown process state: %d", s)
-		return "UNKNOWN"
-	}
-}
+type RunFn func(*Process) error
 
 type Process struct {
-	pid        PID
-	flags      processFlags
-	stateLock  sync.RWMutex
-	state      processState
-	exitReason fmt.Stringer
+	pid         PID
+	flags       ProcessFlags
+	runFn       RunFn
+	stateLock   sync.RWMutex
+	state       processState
+	exitReason  fmt.Stringer
+	deregHandle func()
 
 	// process management structures; must hold p.stateLock to access or modify these as appropriate
 	groupLeader *Ref
@@ -58,15 +37,63 @@ type Process struct {
 	signalChan chan signal[Message]
 }
 
-// TODO: Spawn options
-func newProcess[M Message](pid PID, gcInterval time.Duration) *Process {
-	debug.Assert(!pid.IsZero(), "newProcess: pid cannot be zero")
-	debug.Assert(gcInterval >= 0, "newProcess: gcInterval cannot be negative")
-	return &Process{
-		pid:        pid,
-		lastGC:     time.Now(),
-		gcInterval: gcInterval,
-		mailbox:    make([]Message, 0, 16),
+func Spawn(fn RunFn, opts ...SpawnOpt) *Process {
+	var pid PID
+	// pid = nextPID()
+	p := build(pid, opts)
+	p.runFn = fn
+	return p
+}
+
+func SpawnLink(fn RunFn, linked *Process, opts ...SpawnOpt) *Process {
+	linkOpts := []SpawnOpt{
+		Linked(linked),
+		InheritFrom(linked),
+	}
+	return Spawn(fn, append(linkOpts, opts...)...)
+}
+
+func SpawnMonitor(fn RunFn, monitor *Process, opts ...SpawnOpt) *Process {
+	monitorOpts := []SpawnOpt{
+		Monitored(monitor),
+		InheritFrom(monitor),
+	}
+	return Spawn(fn, append(monitorOpts, opts...)...)
+}
+
+func build(pid PID, opts []SpawnOpt) *Process {
+	debug.AssertFunc(pid.IsZero, "process.build: cannot build process with invalid PID: %s", pid)
+	p := &Process{
+		gcInterval: time.Second,
+	}
+	for _, opt := range opts {
+		opt(p)
+	}
+	if p.signalChan == nil {
+		p.signalChan = make(chan signal[Message], CHANNEL_SIZE)
+	}
+	if p.mailbox == nil {
+		p.mailbox = make([]Message, 0, MAILBOX_SIZE)
+	}
+	if p.groupLeader == nil {
+		p.groupLeader = p.Ref()
+	}
+	p.pid = pid
+	p.state = STARTED_STATE
+	return p
+}
+
+func (p *Process) Start() {
+	p.stateLock.Lock()
+	defer p.stateLock.Unlock()
+	switch p.state {
+	case STARTED_STATE, EXITING_STATE, EXITED_STATE:
+		debug.Throw("process.Start: cannot start process in state %s", p.state)
+	case STARTING_STATE:
+		debug.Throw("process.Start: process needs registrations and deregistration before starting, but this is not implemented yet")
+		// p.deregHandle = register(p)
+		p.state = STARTED_STATE
+		go p.run()
 	}
 }
 
@@ -76,6 +103,18 @@ func (p *Process) Ref() *Ref {
 		sendFn: func(s signal[Message]) { p.send(s) },
 	}
 }
+
+func (p *Process) PID() PID {
+	return p.pid
+}
+
+func (p *Process) UpdateFlags(fn func(ProcessFlags) ProcessFlags) {
+	p.stateLock.Lock()
+	defer p.stateLock.Unlock()
+	p.flags = fn(p.flags)
+}
+
+func (p *Process) run() {}
 
 func (p *Process) send(s signal[Message]) {
 	p.stateLock.RLock()
@@ -362,4 +401,29 @@ func (rl *refMap) garbageCollect() {
 		}
 	}
 	rl.m = m
+}
+
+type processState uint8
+
+const (
+	STARTING_STATE processState = iota
+	STARTED_STATE
+	EXITING_STATE
+	EXITED_STATE
+)
+
+func (s processState) String() string {
+	switch s {
+	case STARTING_STATE:
+		return "STARTING"
+	case STARTED_STATE:
+		return "STARTED"
+	case EXITING_STATE:
+		return "EXITING"
+	case EXITED_STATE:
+		return "EXITED"
+	default:
+		debug.Throw("processState.String: unknown process state: %d", s)
+		return "UNKNOWN"
+	}
 }

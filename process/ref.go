@@ -10,7 +10,7 @@ func (r *Ref) IsValid() bool {
 }
 
 func (r *Ref) Send(m Message) {
-	r.send(messageSignal(NO_FLAGS, m))
+	r.send(messageSignal(no_FLAGS, m))
 }
 
 func (r *Ref) send(s signal[Message]) {

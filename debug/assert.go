@@ -12,6 +12,18 @@ func Refute(condition bool, format string, argv ...any) {
 	assert(!condition, format, argv...)
 }
 
+// AssertFunc is a function that checks the result of a function that returns a boolean and panics with a [gotp/debug.Thrown] error
+// if the result is false.
+func AssertFunc(fn func() bool, format string, argv ...any) {
+	assert(fn(), format, argv...)
+}
+
+// RefuteFunc is a function that checks the result of a function that returns a boolean and panics with a [gotp/debug.Thrown] error
+// if the result is true.
+func RefuteFunc(fn func() bool, format string, argv ...any) {
+	assert(!fn(), format, argv...)
+}
+
 // this is it's own function so that all call depaths are the same and the stack trace is consistent when an assertion
 // fails
 func assert(condition bool, format string, argv ...any) {

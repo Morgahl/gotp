@@ -1,6 +1,8 @@
 package process
 
 import (
+	"time"
+
 	"github.com/Morgahl/gotp"
 	"github.com/Morgahl/gotp/debug"
 )
@@ -31,67 +33,73 @@ const (
 	WHERE_IS_REPLY          gotp.Atom = "where_is_reply"
 )
 
-type processFlags uint8
+const (
+	MAILBOX_SIZE = 16
+	CHANNEL_SIZE = 24
+	GC_INTERVAL  = 1 * time.Second
+)
+
+type ProcessFlags uint8
 
 const (
 	// NO_PROCESS_FLAGS is used to indicate that no flags are set and is used as a default value
-	NO_PROCESS_FLAGS processFlags = 0
+	NO_PROCESS_FLAGS ProcessFlags = 0
 
 	// SENSITIVE_FLAG is used to indicate that the process is sensitive for logging and inspection purposes
-	SENSITIVE_FLAG processFlags = 1 << iota
+	SENSITIVE_FLAG ProcessFlags = 1 << iota
 
 	// TRAP_EXIT_FLAG is used to indicate that the process should trap exit signals
 	TRAP_EXIT_FLAG
 )
 
-func (f processFlags) IsSensitive() bool {
+func (f ProcessFlags) IsSensitive() bool {
 	return f&SENSITIVE_FLAG != 0
 }
 
-func (f processFlags) IsTrapExit() bool {
+func (f ProcessFlags) IsTrapExit() bool {
 	return f&TRAP_EXIT_FLAG != 0
 }
 
 type signalFlags uint8
 
 const (
-	// NO_FLAGS is used to indicate that no flags are set and is used as a default value
-	NO_FLAGS signalFlags = 0
+	// no_FLAGS is used to indicate that no flags are set and is used as a default value
+	no_FLAGS signalFlags = 0
 
-	// LINK_FLAG is used to indicate that the signal is due to a link or unlink operation
-	LINK_FLAG signalFlags = 1 << iota
+	// link_FLAG is used to indicate that the signal is due to a link or unlink operation
+	link_FLAG signalFlags = 1 << iota
 
-	// MONITOR_FLAG is used to indicate that the signal is due to a monitor or de-monitor operation
-	MONITOR_FLAG
+	// monitor_FLAG is used to indicate that the signal is due to a monitor or de-monitor operation
+	monitor_FLAG
 
-	// CAST_FLAG is used to indicate that the signal is a cast message, i.e. it does not expect a reply
-	CAST_FLAG
+	// cast_FLAG is used to indicate that the signal is a cast message, i.e. it does not expect a reply
+	cast_FLAG
 
-	// REQUEST_FLAG is used to indicate that the signal is a request message, i.e. it expects a reply
-	REQUEST_FLAG
+	// request_FLAG is used to indicate that the signal is a request message, i.e. it expects a reply
+	request_FLAG
 
-	// RESPONSE_FLAG is used to indicate that the signal is a response to a request message
-	RESPONSE_FLAG
+	// response_FLAG is used to indicate that the signal is a response to a request message
+	response_FLAG
 )
 
 func (f signalFlags) IsLink() bool {
-	return f&LINK_FLAG != 0
+	return f&link_FLAG != 0
 }
 
 func (f signalFlags) IsMonitor() bool {
-	return f&MONITOR_FLAG != 0
+	return f&monitor_FLAG != 0
 }
 
 func (f signalFlags) IsCast() bool {
-	return f&CAST_FLAG != 0
+	return f&cast_FLAG != 0
 }
 
 func (f signalFlags) IsRequest() bool {
-	return f&REQUEST_FLAG != 0
+	return f&request_FLAG != 0
 }
 
 func (f signalFlags) IsResponse() bool {
-	return f&RESPONSE_FLAG != 0
+	return f&response_FLAG != 0
 }
 
 type signalType uint8

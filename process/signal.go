@@ -19,7 +19,7 @@ func messageSignal[M Message](flags signalFlags, message M) signal[M] {
 func linkSignal(link *Ref) signal[Message] {
 	return signal[Message]{
 		_type:   LINK_SIGNAL,
-		flags:   LINK_FLAG | CAST_FLAG,
+		flags:   link_FLAG | cast_FLAG,
 		message: link,
 	}
 }
@@ -27,7 +27,7 @@ func linkSignal(link *Ref) signal[Message] {
 func unlinkSignal(unlink *Ref) signal[Message] {
 	return signal[Message]{
 		_type:   UNLINK_SIGNAL,
-		flags:   LINK_FLAG | CAST_FLAG,
+		flags:   link_FLAG | cast_FLAG,
 		message: unlink,
 	}
 }
@@ -53,7 +53,7 @@ func exitSignal(flags signalFlags, sender, receiver *Ref, reason fmt.Stringer) s
 func monitorSignal(monitor *Ref) signal[Message] {
 	return signal[Message]{
 		_type:   MONITOR_SIGNAL,
-		flags:   MONITOR_FLAG | CAST_FLAG,
+		flags:   monitor_FLAG | cast_FLAG,
 		message: monitor,
 	}
 }
@@ -61,7 +61,7 @@ func monitorSignal(monitor *Ref) signal[Message] {
 func deMonitorSignal[M Message](deMonitor *Ref) signal[Message] {
 	return signal[Message]{
 		_type:   DE_MONITOR_SIGNAL,
-		flags:   MONITOR_FLAG | CAST_FLAG,
+		flags:   monitor_FLAG | cast_FLAG,
 		message: deMonitor,
 	}
 }

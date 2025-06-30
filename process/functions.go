@@ -16,12 +16,12 @@ func Send[S Sendable](s S, m Message) {
 	case *Process:
 		// TODO: just one of these should be used, at the top level
 		defer func() { recover() }()
-		v.send(messageSignal(NO_FLAGS, m))
+		v.send(messageSignal(no_FLAGS, m))
 
 	case *Ref:
 		// TODO: just one of these should be used, at the top level
 		defer func() { recover() }()
-		v.send(messageSignal(NO_FLAGS, m))
+		v.send(messageSignal(no_FLAGS, m))
 
 	case PID, gotp.Atom:
 		debug.Throw("process.Send: not implemented for PID or gotp.Atom")
