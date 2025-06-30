@@ -11,8 +11,8 @@ type Sendable interface {
 	*Process | *Ref | PID | gotp.Atom
 }
 
-func Send[S Sendable](p S, m Message) {
-	switch v := any(p).(type) {
+func Send[S Sendable](s S, m Message) {
+	switch v := any(s).(type) {
 	case *Process:
 		// TODO: just one of these should be used, at the top level
 		defer func() { recover() }()
@@ -28,6 +28,10 @@ func Send[S Sendable](p S, m Message) {
 		// TODO: this likely requires some additional node local handling of PID allocation as well
 		// TODO: as name registration
 	}
+}
+
+func SendAfter[S Sendable](s S, m Message, delay time.Duration) *time.Timer {
+	return time.AfterFunc(delay, func() { Send(s, m) })
 }
 
 func ReceiveWithTimeout[M Message](p *Process, timeout time.Duration) (M, bool) {
