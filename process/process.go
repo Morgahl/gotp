@@ -38,9 +38,7 @@ type Process struct {
 }
 
 func Spawn(fn RunFn, opts ...SpawnOpt) *Process {
-	var pid PID
-	// pid = nextPID()
-	p := build(pid, opts)
+	p := build(opts)
 	p.runFn = fn
 	return p
 }
@@ -61,8 +59,8 @@ func SpawnMonitor(fn RunFn, monitor *Process, opts ...SpawnOpt) *Process {
 	return Spawn(fn, append(monitorOpts, opts...)...)
 }
 
-func build(pid PID, opts []SpawnOpt) *Process {
-	debug.AssertFunc(pid.IsZero, "process.build: cannot build process with invalid PID: %s", pid)
+func build(opts []SpawnOpt) *Process {
+	pid := nextPID()
 	p := &Process{
 		gcInterval: time.Second,
 	}
@@ -90,9 +88,8 @@ func (p *Process) Start() {
 	case STARTED_STATE, EXITING_STATE, EXITED_STATE:
 		debug.Throw("process.Start: cannot start process in state %s", p.state)
 	case STARTING_STATE:
-		debug.Throw("process.Start: process needs registrations and deregistration before starting, but this is not implemented yet")
-		// p.deregHandle = register(p)
 		p.state = STARTED_STATE
+		p.deregHandle = register(p)
 		go p.run()
 	}
 }
@@ -114,7 +111,25 @@ func (p *Process) UpdateFlags(fn func(ProcessFlags) ProcessFlags) {
 	p.flags = fn(p.flags)
 }
 
-func (p *Process) run() {}
+func (p *Process) run() {
+	var reason error
+	defer func() {
+		reason = debug.Recover(recover(), "Process.run", reason)
+		p.stateLock.Lock()
+		defer p.stateLock.Unlock()
+		if p.deregHandle != nil {
+			p.deregHandle()
+			p.deregHandle = nil
+		}
+		for ref := range p.monitors.refs() {
+			ref.send(downSignal(p.PID(), ref, reason))
+		}
+		for ref := range p.links.refs() {
+			ref.send(exitSignal(link_FLAG, p.PID(), ref, Reason{reason}))
+		}
+	}()
+	reason = p.runFn(p)
+}
 
 func (p *Process) send(s signal[Message]) {
 	p.stateLock.RLock()
@@ -195,7 +210,7 @@ func (p *Process) handleExitSignal(f signalFlags, e exit) {
 	linked := f.IsLink()
 	linkFound := p.links.contains(e.Receiver)
 	trappingExits := p.flags.IsTrapExit()
-	samePid := e.Sender.pid == e.Receiver.pid
+	samePid := e.Sender == e.Receiver.pid
 	// Silently drop the exit signal if:
 	// - it is a link signal and the receiver is not linked to the sender
 	// - it is a normal exit and the process is not trapping exits and the sender
@@ -242,10 +257,7 @@ func (p *Process) handleExitSignal(f signalFlags, e exit) {
 	if trappingExits ||
 		(!linked && e.Reason != KILL) ||
 		(linked && linkFound) {
-		p.pushMessage(Exit{
-			Sender: e.Sender,
-			Reason: e.Reason,
-		})
+		p.pushMessage(e.ToExit())
 	}
 }
 
@@ -401,6 +413,18 @@ func (rl *refMap) garbageCollect() {
 		}
 	}
 	rl.m = m
+}
+
+func (rl *refMap) refs() func(func(*Ref) bool) {
+	return func(yield func(*Ref) bool) {
+		for _, refs := range rl.m {
+			for _, ref := range refs {
+				if !yield(ref) {
+					return
+				}
+			}
+		}
+	}
 }
 
 type processState uint8

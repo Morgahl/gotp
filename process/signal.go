@@ -33,12 +33,19 @@ func unlinkSignal(unlink *Ref) signal[Message] {
 }
 
 type exit struct {
-	Sender   *Ref
+	Sender   PID
 	Receiver *Ref
 	Reason   fmt.Stringer
 }
 
-func exitSignal(flags signalFlags, sender, receiver *Ref, reason fmt.Stringer) signal[Message] {
+func (e exit) ToExit() Exit {
+	return Exit{
+		Sender: e.Sender,
+		Reason: e.Reason,
+	}
+}
+
+func exitSignal(flags signalFlags, sender PID, receiver *Ref, reason fmt.Stringer) signal[Message] {
 	return signal[Message]{
 		_type: EXIT_SIGNAL,
 		flags: flags,

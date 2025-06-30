@@ -4,7 +4,6 @@ import (
 	"time"
 
 	"github.com/Morgahl/gotp"
-	"github.com/Morgahl/gotp/debug"
 )
 
 type Sendable interface {
@@ -12,21 +11,19 @@ type Sendable interface {
 }
 
 func Send[S Sendable](s S, m Message) {
+	defer func() { recover() }()
 	switch v := any(s).(type) {
 	case *Process:
-		// TODO: just one of these should be used, at the top level
-		defer func() { recover() }()
 		v.send(messageSignal(no_FLAGS, m))
 
 	case *Ref:
-		// TODO: just one of these should be used, at the top level
-		defer func() { recover() }()
 		v.send(messageSignal(no_FLAGS, m))
 
-	case PID, gotp.Atom:
-		debug.Throw("process.Send: not implemented for PID or gotp.Atom")
-		// TODO: this likely requires some additional node local handling of PID allocation as well
-		// TODO: as name registration
+	case PID:
+		sendPID(v, m)
+
+	case gotp.Atom:
+		sendNamed(v, m)
 	}
 }
 

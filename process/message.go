@@ -17,7 +17,7 @@ type Reply[M Message] struct {
 }
 
 type Exit struct {
-	Sender *Ref
+	Sender PID
 	Reason fmt.Stringer
 }
 
@@ -25,4 +25,12 @@ type Down struct {
 	From   PID
 	Ref    *Ref
 	Reason error
+}
+
+type Reason struct {
+	error
+}
+
+func (r Reason) String() string {
+	return r.Error()
 }
