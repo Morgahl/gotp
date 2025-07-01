@@ -1,9 +1,20 @@
 package gotp
 
-import "unsafe"
+import (
+	"log/slog"
+	"unsafe"
+)
 
 type Atom string
 
 func (a Atom) String() string {
 	return unsafe.String(unsafe.StringData(string(a)), len(a))
+}
+
+func (a Atom) Error() string {
+	return a.String()
+}
+
+func (a Atom) LogValue() slog.Value {
+	return slog.StringValue(a.String())
 }
