@@ -2,13 +2,22 @@ package process
 
 import (
 	"errors"
-	"fmt"
 	"slices"
 	"sync"
 	"time"
 
 	"github.com/Morgahl/gotp/debug"
 )
+
+type Startable interface {
+	Start(opts ...SpawnOpt) (Started, error)
+}
+
+type Started interface {
+	PID() PID
+	Send(Message)
+	SendAfter(Message, time.Duration) *time.Timer
+}
 
 type RunFn func(*Process) error
 
@@ -18,7 +27,7 @@ type Process struct {
 	runFn       RunFn
 	stateLock   sync.RWMutex
 	state       processState
-	exitReason  fmt.Stringer
+	exitReason  error
 	deregHandle func()
 
 	// process management structures; must hold p.stateLock to access or modify these as appropriate
@@ -78,7 +87,7 @@ func build(opts []SpawnOpt) *Process {
 		p.groupLeader = p.Ref()
 	}
 	p.pid = pid
-	p.state = STARTED_STATE
+	p.state = STARTING_STATE
 	return p
 }
 
@@ -126,7 +135,7 @@ func (p *Process) run() {
 			ref.send(downSignal(p.PID(), ref, reason))
 		}
 		for ref := range p.links.refs() {
-			ref.send(exitSignal(link_FLAG, p.PID(), ref, Reason{reason}))
+			ref.send(exitSignal(link_FLAG, p.PID(), ref, errorAsStringer{reason}))
 		}
 	}()
 	reason = p.runFn(p)
@@ -206,8 +215,12 @@ func (p *Process) unlink(re *Ref) {
 	p.dirty = p.dirty || removed
 }
 
+func (p *Process) Exit(reason error) {
+	p.send(exitSignal(no_FLAGS, p.pid, nil, reason))
+}
+
 // this must always be called while the stateLock is at least read-locked and the mailboxLock is write-locked
-func (p *Process) handleExitSignal(f signalFlags, e exit) {
+func (p *Process) handleExitSignal(f signalFlags, e exitSig) {
 	linked := f.IsLink()
 	linkFound := p.links.contains(e.Receiver)
 	trappingExits := p.flags.IsTrapExit()
@@ -274,7 +287,7 @@ func (p *Process) deMonitor(re *Ref) {
 }
 
 // this must always be called while the stateLock is at least read-locked and the mailboxLock is write-locked
-func (p *Process) down(down Down) {
+func (p *Process) down(down DownMsg) {
 	if p.monitors.contains(down.Ref) {
 		p.pushMessage(down)
 	}
@@ -288,16 +301,21 @@ func (p *Process) setGroupLeader(re *Ref) {
 }
 
 // this must always be called while the stateLock is at least read-locked and the mailboxLock is write-locked
-func (p *Process) aliveRequest(re *Ref) {
+func (p *Process) aliveRequest(req RequestMsg[Message]) {
 	var err error
 	if p.state != STARTED_STATE {
 		err = errors.New("process not started")
 	}
-	re.send(aliveReplySignal(p.pid, re, err))
+	sig := aliveReplySignal(req, p.Ref(), err)
+	if req.Ref != nil {
+		req.Ref.send(sig)
+	} else {
+		sendPID(req.From, sig)
+	}
 }
 
 // this must always be called while the stateLock is at least read-locked and the mailboxLock is write-locked
-func (p *Process) aliveReply(r Reply[error]) {
+func (p *Process) aliveReply(r ReplyMsg[error]) {
 	p.pushMessage(r)
 }
 
@@ -316,7 +334,7 @@ func (p *Process) handleSignal(s signal[Message]) {
 			re := debug.AssertTypeNotZero[*Ref](s.message, "process.handleSignal: expected *Ref for UNLINK_SIGNAL, got %T", s.message)
 			p.unlink(re)
 		case EXIT_SIGNAL:
-			e := debug.AssertTypeNotZero[exit](s.message, "process.handleSignal: expected exit for EXIT_SIGNAL, got %T", s.message)
+			e := debug.AssertTypeNotZero[exitSig](s.message, "process.handleSignal: expected exit for EXIT_SIGNAL, got %T", s.message)
 			p.handleExitSignal(s.flags, e)
 		case MONITOR_SIGNAL:
 			re := debug.AssertTypeNotZero[*Ref](s.message, "process.handleSignal: expected *Ref for MONITOR_SIGNAL, got %T", s.message)
@@ -325,16 +343,16 @@ func (p *Process) handleSignal(s signal[Message]) {
 			re := debug.AssertTypeNotZero[*Ref](s.message, "process.handleSignal: expected *Ref for DE_MONITOR_SIGNAL, got %T", s.message)
 			p.deMonitor(re)
 		case DOWN_SIGNAL:
-			down := debug.AssertTypeNotZero[Down](s.message, "process.handleSignal: expected exit for DOWN_SIGNAL, got %T", s.message)
+			down := debug.AssertTypeNotZero[DownMsg](s.message, "process.handleSignal: expected exit for DOWN_SIGNAL, got %T", s.message)
 			p.down(down)
 		case GROUP_LEADER_SIGNAL:
 			re := debug.AssertTypeNotZero[*Ref](s.message, "process.handleSignal: expected *Ref for GROUP_LEADER_SIGNAL, got %T", s.message)
 			p.setGroupLeader(re)
 		case ALIVE_REQUEST_SIGNAL:
-			re := debug.AssertTypeNotZero[*Ref](s.message, "process.handleSignal: expected message for ALIVE_REQUEST_SIGNAL, got %T", s.message)
-			p.aliveRequest(re)
+			req := debug.AssertTypeNotZero[RequestMsg[Message]](s.message, "process.handleSignal: expected message for ALIVE_REQUEST_SIGNAL, got %T", s.message)
+			p.aliveRequest(req)
 		case ALIVE_REPLY_SIGNAL:
-			err := debug.AssertTypeNotZero[Reply[error]](s.message, "process.handleSignal: expected Reply[error] for ALIVE_REPLY_SIGNAL, got %T", s.message)
+			err := debug.AssertTypeNotZero[ReplyMsg[error]](s.message, "process.handleSignal: expected Reply[error] for ALIVE_REPLY_SIGNAL, got %T", s.message)
 			p.aliveReply(err)
 		case MESSAGE_SIGNAL:
 			p.pushMessage(s.message)

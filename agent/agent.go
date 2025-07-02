@@ -5,10 +5,12 @@ import (
 	"log/slog"
 
 	"github.com/Morgahl/gotp"
+	"github.com/Morgahl/gotp/process"
 	"github.com/Morgahl/gotp/server"
+	"github.com/Morgahl/gotp/supervisor"
 )
 
-var _ server.Serverable[any, gotp.Msg, int, gotp.Msg, gotp.Msg] = &Agent[int]{}
+var _ server.Serverable[any, process.Message, int, process.Message, process.Message] = &Agent[int]{}
 
 type InitFn[T any] func() *T
 
@@ -22,8 +24,8 @@ type Agent[T any] struct {
 	initFn InitFn[T]
 	state  *T
 
-	server.OptionalCallbacks[any, gotp.Msg]
-	server *server.Server[any, gotp.Msg, T, gotp.Msg, gotp.Msg]
+	server.OptionalCallbacks[any, process.Message]
+	server *server.Server[any, process.Message, T, process.Message, process.Message]
 }
 
 func New[T any](fn InitFn[T]) *Agent[T] {
@@ -32,43 +34,43 @@ func New[T any](fn InitFn[T]) *Agent[T] {
 	return a
 }
 
-func (a *Agent[T]) Start(opts ...gotp.SpawnOpt) (gotp.Started, error) {
+func (a *Agent[T]) Start(opts ...process.SpawnOpt) (process.Started, error) {
 	return a.server.Start(opts...)
 }
 
-func (a *Agent[T]) StartLink(link gotp.PID, opts ...gotp.SpawnOpt) (gotp.Supervised, error) {
-	return a.server.StartLink(link, opts...)
+func (a *Agent[T]) StartLink(opts ...process.SpawnOpt) (supervisor.Supervised, error) {
+	return a.server.StartLink(opts...)
 }
 
-func (a *Agent[T]) ChildSpec() gotp.ChildSpec {
-	return gotp.ChildSpec{
-		Restart:     gotp.PERMANENT,
+func (a *Agent[T]) ChildSpec() supervisor.ChildSpec {
+	return supervisor.ChildSpec{
+		Restart:     supervisor.PERMANENT,
 		Shutdown:    gotp.DEFAULT_SHUTDOWN,
-		Type:        gotp.WORKER,
+		Type:        supervisor.WORKER,
 		Significant: true,
 	}
 }
 
-func (a *Agent[T]) Init(any) (server.Continue[gotp.Msg], error) {
+func (a *Agent[T]) Init(any) (server.Continue[process.Message], error) {
 	if a.initFn == nil {
-		return server.NoCont[gotp.Msg](), fmt.Errorf("init function cannot be nil")
+		return server.NoCont[process.Message](), fmt.Errorf("init function cannot be nil")
 	}
 	a.state = a.initFn()
-	return server.NoCont[gotp.Msg](), nil
+	return server.NoCont[process.Message](), nil
 }
 
-func (a *Agent[T]) HandleCall(msg gotp.Msg, from gotp.PID) (server.Response[T], server.Continue[gotp.Msg], error) {
+func (a *Agent[T]) HandleCall(msg process.Message, from process.PID) (server.Response[T], server.Continue[process.Message], error) {
 	switch msg := msg.(type) {
 	case GetFn[T]:
 		slog.Debug("HandleCall", slog.Any("from", from), slog.Any("msg", fmt.Sprintf("%T", msg)))
-		return server.Reply(msg(*a.state)), server.NoCont[gotp.Msg](), nil
+		return server.Reply(msg(*a.state)), server.NoCont[process.Message](), nil
 	case GetAndUpdateFn[T]:
 		slog.Debug("HandleCall", slog.Any("from", from), slog.Any("msg", fmt.Sprintf("%T", msg)))
-		return server.Reply(msg(a.state)), server.NoCont[gotp.Msg](), nil
+		return server.Reply(msg(a.state)), server.NoCont[process.Message](), nil
 	case UpdateFn[T]:
 		slog.Debug("HandleCall", slog.Any("from", from), slog.Any("msg", fmt.Sprintf("%T", msg)))
 		msg(a.state)
-		return server.NoReply[T](), server.NoCont[gotp.Msg](), nil
+		return server.NoReply[T](), server.NoCont[process.Message](), nil
 	default:
 		slog.Debug("HandleCall", slog.Any("from", from), slog.Any("msg", fmt.Sprintf("%T", msg)))
 		cont, err := a.HandleInfo(msg)
@@ -76,12 +78,12 @@ func (a *Agent[T]) HandleCall(msg gotp.Msg, from gotp.PID) (server.Response[T], 
 	}
 }
 
-func (a *Agent[T]) HandleCast(msg gotp.Msg) (server.Continue[gotp.Msg], error) {
+func (a *Agent[T]) HandleCast(msg process.Message) (server.Continue[process.Message], error) {
 	switch msg := msg.(type) {
 	case UpdateFn[T]:
 		slog.Debug("HandleCast", slog.Any("msg", fmt.Sprintf("%T", msg)))
 		msg(a.state)
-		return server.NoCont[gotp.Msg](), nil
+		return server.NoCont[process.Message](), nil
 	default:
 		return a.HandleInfo(msg)
 	}

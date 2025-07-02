@@ -6,21 +6,23 @@ import (
 	"time"
 
 	"github.com/Morgahl/gotp"
+	"github.com/Morgahl/gotp/process"
+	"github.com/Morgahl/gotp/supervisor"
 )
 
 type Serverable[
 	I any,
-	Cl gotp.Msg,
-	R gotp.Msg,
-	Cs gotp.Msg,
-	Ct gotp.Msg,
+	Cl process.Message,
+	R process.Message,
+	Cs process.Message,
+	Ct process.Message,
 ] interface {
-	ChildSpec() gotp.ChildSpec
+	ChildSpec() supervisor.ChildSpec
 	Init(I) (Continue[Ct], error)
-	HandleCall(Cl, gotp.PID) (Response[R], Continue[Ct], error)
+	HandleCall(Cl, process.PID) (Response[R], Continue[Ct], error)
 	HandleCast(Cs) (Continue[Ct], error)
 	HandleContinue(Ct) (Continue[Ct], error)
-	HandleInfo(gotp.Msg) (Continue[Ct], error)
+	HandleInfo(process.Message) (Continue[Ct], error)
 	Terminate(error) error
 }
 
@@ -38,18 +40,18 @@ const (
 // ensure that the server correctly matches the Serverable interface:
 // - I which is the arg passed to Init when it is called
 // - Ct which is the type of the continue message
-type OptionalCallbacks[I any, Ct gotp.Msg] struct{}
+type OptionalCallbacks[I any, Ct process.Message] struct{}
 
-func (OptionalCallbacks[I, Ct]) ChildSpec() gotp.ChildSpec {
+func (OptionalCallbacks[I, Ct]) ChildSpec() supervisor.ChildSpec {
 	slog.Warn("ChildSpec not implemented, defaulting to permanent worker")
-	return gotp.ChildSpec{
-		Restart:  gotp.PERMANENT,
-		Shutdown: DEFAULT_SHUTDOWN,
-		Type:     gotp.WORKER,
+	return supervisor.ChildSpec{
+		Restart:  supervisor.PERMANENT,
+		Shutdown: gotp.DEFAULT_SHUTDOWN,
+		Type:     supervisor.WORKER,
 	}
 }
 
-func (OptionalCallbacks[I, Ct]) HandleCall(msg any, from gotp.PID) (Response[any], Continue[Ct], error) {
+func (OptionalCallbacks[I, Ct]) HandleCall(msg any, from process.PID) (Response[any], Continue[Ct], error) {
 	slog.Warn("HandleCall not implemented, msg will be ignored", slog.String("msg", fmt.Sprintf("%+v", msg)), slog.String("from", from.String()))
 	return NoReply[any](), NoCont[Ct](), nil
 }
@@ -64,12 +66,12 @@ func (OptionalCallbacks[I, Ct]) HandleContinue(msg Ct) (Continue[Ct], error) {
 	return NoCont[Ct](), nil
 }
 
-func (OptionalCallbacks[I, Ct]) HandleInfo(msg gotp.Msg) (Continue[Ct], error) {
+func (OptionalCallbacks[I, Ct]) HandleInfo(msg process.Message) (Continue[Ct], error) {
 	slog.Warn("HandleInfo not implemented, msg will be ignored", slog.String("msg", fmt.Sprintf("%+v", msg)))
 	return NoCont[Ct](), nil
 }
 
 func (OptionalCallbacks[I, Ct]) Terminate(reason error) error {
-	slog.Warn("Terminate not implemented, server will be stopped", slog.String("reason", reason.Error()))
+	slog.Warn("Terminate not implemented, server will be stopped", slog.Any("reason", reason))
 	return reason
 }

@@ -7,10 +7,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Morgahl/gotp"
-	"github.com/Morgahl/gotp/application"
 	"github.com/Morgahl/gotp/debug"
 	"github.com/Morgahl/gotp/internal/ctx"
+	gotp "github.com/Morgahl/gotp/old"
+	"github.com/Morgahl/gotp/old/application"
 )
 
 func Run(app application.Application) (err error) {

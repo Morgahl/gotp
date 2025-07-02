@@ -2,79 +2,81 @@ package server
 
 import (
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/Morgahl/gotp"
 	"github.com/Morgahl/gotp/debug"
+	"github.com/Morgahl/gotp/process"
+	"github.com/Morgahl/gotp/supervisor"
 )
 
-var _ gotp.Supervisable = &Server[any, any, any, any, any]{}
-var _ gotp.Supervised = &Server[any, any, any, any, any]{}
+// TODO: these shoudl conform once we have a supervisr for them to conform to
+// var _ supervisor.Supervisable = &Server[any, any, any, any, any]{}
+// var _ supervisor.Supervised = &Server[any, any, any, any, any]{}
 
 type Server[
 	I any,
-	Cl gotp.Msg,
-	R gotp.Msg,
-	Cs gotp.Msg,
-	Ct gotp.Msg,
+	Cl process.Message,
+	R process.Message,
+	Cs process.Message,
+	Ct process.Message,
 ] struct {
 	server  Serverable[I, Cl, R, Cs, Ct]
-	process *gotp.Process
+	process *process.Process
 	initArg I
 }
 
 func Start[
 	I any,
-	Cl gotp.Msg,
-	R gotp.Msg,
-	Cs gotp.Msg,
-	Ct gotp.Msg,
-](server Serverable[I, Cl, R, Cs, Ct], initArg I, opts ...gotp.SpawnOpt) (gotp.Started, error) {
+	Cl process.Message,
+	R process.Message,
+	Cs process.Message,
+	Ct process.Message,
+](server Serverable[I, Cl, R, Cs, Ct], initArg I, opts ...process.SpawnOpt) (process.Started, error) {
 	return New(server, initArg).Start(opts...)
 }
 
 func StartLink[
 	I any,
-	Cl gotp.Msg,
-	R gotp.Msg,
-	Cs gotp.Msg,
-	Ct gotp.Msg,
-](server Serverable[I, Cl, R, Cs, Ct], initArg I, link gotp.PID, opts ...gotp.SpawnOpt) (gotp.Supervised, error) {
-	return New(server, initArg).StartLink(link, opts...)
+	Cl process.Message,
+	R process.Message,
+	Cs process.Message,
+	Ct process.Message,
+](server Serverable[I, Cl, R, Cs, Ct], initArg I, opts ...process.SpawnOpt) (supervisor.Supervised, error) {
+	return New(server, initArg).StartLink(opts...)
 }
 
 func New[
 	I any,
-	Cl gotp.Msg,
-	R gotp.Msg,
-	Cs gotp.Msg,
-	Ct gotp.Msg,
+	Cl process.Message,
+	R process.Message,
+	Cs process.Message,
+	Ct process.Message,
 ](server Serverable[I, Cl, R, Cs, Ct], initArg I) *Server[I, Cl, R, Cs, Ct] {
 	return &Server[I, Cl, R, Cs, Ct]{server: server, initArg: initArg}
 }
 
 func (s Server[I, Cl, R, Cs, Ct]) String() string {
-	return fmt.Sprintf("Server[%T](server: %s, process: %s, initArg: %v)", s.server, s.server, s.process, s.initArg)
+	return fmt.Sprintf("Server[%T](server: %s, process: %s, initArg: %v)", s.server, s.server, s.process.PID(), s.initArg)
 }
 
-func (s *Server[I, Cl, R, Cs, Ct]) ChildSpec() gotp.ChildSpec {
+func (s *Server[I, Cl, R, Cs, Ct]) ChildSpec() supervisor.ChildSpec {
 	return s.server.ChildSpec()
 }
 
-func (s *Server[I, Cl, R, Cs, Ct]) Start(opts ...gotp.SpawnOpt) (gotp.Started, error) {
+func (s *Server[I, Cl, R, Cs, Ct]) Start(opts ...process.SpawnOpt) (process.Started, error) {
 	err := <-s.setupProc(opts...)
 	return s, err
 }
 
-func (s *Server[I, Cl, R, Cs, Ct]) StartLink(link gotp.PID, opts ...gotp.SpawnOpt) (gotp.Supervised, error) {
-	err := <-s.setupLinkedProc(link, opts...)
+func (s *Server[I, Cl, R, Cs, Ct]) StartLink(opts ...process.SpawnOpt) (supervisor.Supervised, error) {
+	err := <-s.setupLinkedProc(opts...)
 	return s, err
 }
 
 func (s *Server[I, Cl, R, Cs, Ct]) Call(msg Cl, timeout time.Duration) (resp R, err error) {
-	call := CallMsg[Cl, R](s.process.ID(), msg)
-	s.process.Send(call)
+	call := CallMsg[Cl, R](s.process.PID(), msg)
+	process.Send(s.process, call)
 
 	if timeout <= 0 {
 		timeout = gotp.DEFAULT_TIMEOUT
@@ -90,53 +92,49 @@ func (s *Server[I, Cl, R, Cs, Ct]) Call(msg Cl, timeout time.Duration) (resp R, 
 }
 
 func (s *Server[I, Cl, R, Cs, Ct]) Cast(msg Cs) {
-	s.process.Send(CastMsg(msg))
+	process.Send(s.process, CastMsg(msg))
 }
 
-func (s *Server[I, Cl, R, Cs, Ct]) Info(msg gotp.Msg) {
-	s.process.Send(msg)
+func (s *Server[I, Cl, R, Cs, Ct]) Info(msg process.Message) {
+	process.Send(s.process, msg)
 }
 
 func (s *Server[I, Cl, R, Cs, Ct]) Stop(reason error) {
-	s.process.Send(StopMsg(reason))
+	process.Send(s.process, StopMsg(reason))
 }
 
-func (s *Server[I, Cl, R, Cs, Ct]) ID() gotp.PID {
-	return s.process.ID()
+func (s *Server[I, Cl, R, Cs, Ct]) PID() process.PID {
+	return s.process.PID()
 }
 
-func (s *Server[I, Cl, R, Cs, Ct]) Send(msg gotp.Msg) {
-	s.process.Send(msg)
+func (s *Server[I, Cl, R, Cs, Ct]) Send(msg process.Message) {
+	process.Send(s.process, msg)
 }
 
-func (s *Server[I, Cl, R, Cs, Ct]) SendAfter(msg gotp.Msg, after time.Duration) *time.Timer {
-	return s.process.SendAfter(msg, after)
+func (s *Server[I, Cl, R, Cs, Ct]) SendAfter(msg process.Message, after time.Duration) *time.Timer {
+	return process.SendAfter(s.process, msg, after)
 }
 
-func (s *Server[I, Cl, R, Cs, Ct]) Receive() <-chan gotp.Msg {
-	if s.process == nil {
-		slog.Error("Server.Receive: Server not started")
-		return nil
-	}
-	return s.process.Receive()
+func (s *Server[I, Cl, R, Cs, Ct]) Process() *process.Process {
+	return s.process
 }
 
-func (s *Server[I, Cl, R, Cs, Ct]) setupProc(opts ...gotp.SpawnOpt) <-chan error {
+func (s *Server[I, Cl, R, Cs, Ct]) setupProc(opts ...process.SpawnOpt) <-chan error {
 	sig := make(chan error)
-	s.process = gotp.Spawn(s.loop(sig), opts...)
+	s.process = process.Spawn(s.loop(sig), opts...)
 	s.process.Start()
 	return sig
 }
 
-func (s *Server[I, Cl, R, Cs, Ct]) setupLinkedProc(link gotp.PID, opts ...gotp.SpawnOpt) <-chan error {
+func (s *Server[I, Cl, R, Cs, Ct]) setupLinkedProc(opts ...process.SpawnOpt) <-chan error {
 	sig := make(chan error)
-	s.process = gotp.Spawn(s.loop(sig), append(opts, gotp.Link(link))...)
+	s.process = process.SpawnLink(s.loop(sig), s.process, opts...)
 	s.process.Start()
 	return sig
 }
 
-func (s *Server[I, Cl, R, Cs, Ct]) loop(sig chan error) gotp.RunFn {
-	return func(p *gotp.Process) (reason error) {
+func (s *Server[I, Cl, R, Cs, Ct]) loop(sig chan error) process.RunFn {
+	return func(p *process.Process) (reason error) {
 		var cont Continue[Ct]
 		var resp Response[R]
 		defer func() {
@@ -163,23 +161,18 @@ func (s *Server[I, Cl, R, Cs, Ct]) loop(sig chan error) gotp.RunFn {
 				continue
 			}
 
-			msg, ok := <-p.Receive()
+			msg, ok := process.ReceiveWithTimeout[process.Message](p, 0)
 			if !ok {
-				// The Process mailbox has been closed?!?!
-				panic(fmt.Sprintf("Server.loop: Process mailbox closed unexpectedly for PID %s", p.ID()))
+				// The Process message queue has been closed?!?!
+				debug.Throw("Server.loop: Process message queue closed unexpectedly for PID %s", p.PID())
 			}
 			switch msg := msg.(type) {
 			case stop:
 				// We have a stop message, we should terminate the server.
 				return msg.reason
 
-			case gotp.Exit:
+			case process.ExitMsg:
 				// We have an Exit message
-				if msg.ID() == p.ID() {
-					// We have been asked to terminate
-					return msg.Unwrap()
-				}
-
 				cont, reason = s.server.HandleInfo(msg)
 
 			case call[Cl, R]:

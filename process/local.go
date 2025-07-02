@@ -30,11 +30,11 @@ func init() {
 
 func nextPID() PID {
 	id := atomic.AddUint64(&localID, 1)
-	if id > gotp.ID_MASK {
+	if id > ID_MASK {
 		stepSerial()
 		id = 1
 	}
-	return newPID(0, id, uint8(atomic.LoadUint32(&serial)&gotp.SERIAL_MASK))
+	return newPID(0, id, uint8(atomic.LoadUint32(&serial)&SERIAL_MASK))
 }
 
 func stepSerial() {
@@ -75,4 +75,14 @@ func sendNamed(name gotp.Atom, msg Message) {
 	if exists {
 		ref.send(messageSignal(no_FLAGS, msg))
 	}
+}
+
+func namedPID(name gotp.Atom) (PID, bool) {
+	nameRegistryMu.RLock()
+	ref, exists := nameRegistry[name]
+	nameRegistryMu.RUnlock()
+	if exists {
+		return ref.pid, true
+	}
+	return PIDZero(), false
 }

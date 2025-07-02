@@ -87,6 +87,7 @@ func Receive[M Message](p *Process) (M, bool) {
 	for {
 		switch p.state {
 		case STARTING_STATE, STARTED_STATE:
+
 			for _, m := range p.mailbox[readOffset:] {
 				if m == nil {
 					readOffset++
@@ -112,6 +113,25 @@ func Receive[M Message](p *Process) (M, bool) {
 		case EXITING_STATE, EXITED_STATE:
 			var zero M
 			return zero, false
+		}
+	}
+}
+
+func Exit[S Sendable](s S, reason error) {
+	defer func() { recover() }()
+	switch v := any(s).(type) {
+	case *Process:
+		v.send(exitSignal(no_FLAGS, v.pid, nil, reason))
+
+	case *Ref:
+		v.send(exitSignal(no_FLAGS, v.pid, v, reason))
+
+	case PID:
+		sendPID(v, exitSignal(no_FLAGS, v, nil, reason))
+
+	case gotp.Atom:
+		if pid, found := namedPID(v); found {
+			sendPID(pid, exitSignal(no_FLAGS, pid, nil, reason))
 		}
 	}
 }

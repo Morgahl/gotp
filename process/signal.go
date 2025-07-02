@@ -1,7 +1,5 @@
 package process
 
-import "fmt"
-
 type signal[M Message] struct {
 	_type   signalType
 	flags   signalFlags
@@ -32,24 +30,24 @@ func unlinkSignal(unlink *Ref) signal[Message] {
 	}
 }
 
-type exit struct {
+type exitSig struct {
 	Sender   PID
 	Receiver *Ref
-	Reason   fmt.Stringer
+	Reason   error
 }
 
-func (e exit) ToExit() Exit {
-	return Exit{
+func (e exitSig) ToExit() ExitMsg {
+	return ExitMsg{
 		Sender: e.Sender,
 		Reason: e.Reason,
 	}
 }
 
-func exitSignal(flags signalFlags, sender PID, receiver *Ref, reason fmt.Stringer) signal[Message] {
+func exitSignal(flags signalFlags, sender PID, receiver *Ref, reason error) signal[Message] {
 	return signal[Message]{
 		_type: EXIT_SIGNAL,
 		flags: flags,
-		message: exit{
+		message: exitSig{
 			Sender:   sender,
 			Receiver: receiver,
 			Reason:   reason,
@@ -76,7 +74,7 @@ func deMonitorSignal[M Message](deMonitor *Ref) signal[Message] {
 func downSignal(from PID, re *Ref, reason error) signal[Message] {
 	return signal[Message]{
 		_type: DOWN_SIGNAL,
-		message: Down{
+		message: DownMsg{
 			From:   from,
 			Ref:    re,
 			Reason: reason,
@@ -91,23 +89,16 @@ func groupLeaderSignal(re *Ref) signal[Message] {
 	}
 }
 
-func aliveRequestSignal(from PID, re *Ref) signal[Message] {
+func aliveRequestSignal[F From](from F) signal[Message] {
 	return signal[Message]{
-		_type: ALIVE_REQUEST_SIGNAL,
-		message: Request[any]{
-			From: from,
-			Ref:  re,
-		},
+		_type:   ALIVE_REQUEST_SIGNAL,
+		message: RequestFrom[F, Message](from, nil),
 	}
 }
 
-func aliveReplySignal(from PID, ref *Ref, err error) signal[Message] {
+func aliveReplySignal[F From](request RequestMsg[Message], from F, err error) signal[Message] {
 	return signal[Message]{
-		_type: ALIVE_REPLY_SIGNAL,
-		message: Reply[error]{
-			From:    from,
-			Ref:     ref,
-			Message: err,
-		},
+		_type:   ALIVE_REPLY_SIGNAL,
+		message: ReplyTo(request, from, err),
 	}
 }
