@@ -3,8 +3,8 @@ package game
 import (
 	"log/slog"
 
-	"github.com/Morgahl/gotp"
-	"github.com/Morgahl/gotp/supervisor"
+	gotp "github.com/Morgahl/gotp/old"
+	"github.com/Morgahl/gotp/old/supervisor"
 )
 
 var _ supervisor.Supervisor[gotp.Options] = &Team{}

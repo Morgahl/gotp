@@ -3,9 +3,9 @@ package game
 import (
 	"errors"
 
-	"github.com/Morgahl/gotp"
-	"github.com/Morgahl/gotp/application"
-	"github.com/Morgahl/gotp/supervisor"
+	gotp "github.com/Morgahl/gotp/old"
+	"github.com/Morgahl/gotp/old/application"
+	"github.com/Morgahl/gotp/old/supervisor"
 )
 
 type Game struct{}

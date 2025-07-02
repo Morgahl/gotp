@@ -6,8 +6,8 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/Morgahl/gotp"
-	"github.com/Morgahl/gotp/server"
+	gotp "github.com/Morgahl/gotp/old"
+	"github.com/Morgahl/gotp/old/server"
 )
 
 const (

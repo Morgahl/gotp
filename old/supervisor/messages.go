@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/Morgahl/gotp"
+	gotp "github.com/Morgahl/gotp/old"
 )
 
 type startChild struct {

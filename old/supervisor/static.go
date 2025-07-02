@@ -6,8 +6,8 @@ import (
 	"slices"
 	"time"
 
-	"github.com/Morgahl/gotp"
-	"github.com/Morgahl/gotp/server"
+	gotp "github.com/Morgahl/gotp/old"
+	"github.com/Morgahl/gotp/old/server"
 )
 
 var _ gotp.Supervisable = &StaticSupervisor{}

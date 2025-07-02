@@ -7,7 +7,7 @@ import (
 	"github.com/Morgahl/gotp/internal/grts"
 	"github.com/Morgahl/gotp/logger"
 
-	"github.com/Morgahl/gotp/examples/game"
+	"github.com/Morgahl/gotp/old/examples/game"
 )
 
 func init() {

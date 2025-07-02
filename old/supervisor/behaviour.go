@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Morgahl/gotp"
+	gotp "github.com/Morgahl/gotp/old"
 )
 
 type Supervisor[I any] interface {
