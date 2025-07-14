@@ -28,6 +28,6 @@ func Cast[Cl process.Message, S process.Sendable](to S, msg Cl) {
 	process.Send(to, CastMsg(msg))
 }
 
-func Stop[S process.Sendable](to S, reason error) {
-	process.Send(to, StopMsg(reason))
-}
+// func Stop[S process.Sendable](to S, reason error) {
+// 	process.Send(to, StopMsg(reason))
+// }

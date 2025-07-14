@@ -28,7 +28,7 @@ func Run(app application.Application) (err error) {
 	<-ctx.Done()
 	wg.Wait()
 
-	slog.Info("grts.Run: exiting")
+	slog.InfoContext(ctx, "grts.Run: exiting")
 	return context.Cause(ctx)
 }
 
@@ -60,7 +60,7 @@ func _init(rootCtx ctx.Cancellable, app application.Application, wg *sync.WaitGr
 		defer func(appStart time.Time) {
 			slog.InfoContext(rootCtx, "grts._init: application exited", slog.Duration("after", time.Since(appStart)))
 		}(appStart)
-		slog.DebugContext(rootCtx, "grts._init: supervision tree started", slog.Any("pid", sup.PID()), slog.Duration("took", time.Since(startUp)))
+		slog.InfoContext(rootCtx, "grts._init: supervision tree started", slog.Any("pid", sup.PID()), slog.Duration("took", time.Since(startUp)))
 
 		if msg, ok, err := process.ReceiveContext[process.ExitMsg](p, rootCtx); err != nil {
 			if cause := context.Cause(rootCtx); errors.Is(err, cause) {

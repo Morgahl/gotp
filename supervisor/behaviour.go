@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 )
 
 type Supervisor[I any] interface {
+	Context() context.Context
 	ChildSpec() server.ChildSpec
 	Init(I) (Flags, []server.Supervisable, error)
 }

@@ -16,7 +16,7 @@ func Send[S Sendable](s S, m Message) {
 	defer func() { recover() }()
 	switch v := any(s).(type) {
 	case *Process:
-		slog.Debug("process.Send", slog.Any("pid", v.pid), slog.Any("message", m))
+		slog.Debug("process.Send", slog.Any("message", m))
 		v.send(messageSignal(no_FLAGS, m))
 
 	case *Ref:
@@ -56,8 +56,6 @@ func ReceiveContext[M Message](p *Process, ctx context.Context) (M, bool, error)
 func receive[M Message, D any](p *Process, done <-chan D) (_ M, _ bool, reason error) {
 	var readOffset int
 	var messageSkipOffset int
-	p.stateLock.RLock()
-	defer p.stateLock.RUnlock()
 	p.mailboxMu.Lock()
 	defer p.mailboxMu.Unlock()
 	defer p.maybeGarbageCollect()
@@ -67,18 +65,19 @@ PROCESS_SIGNALS:
 		switch p.state {
 		case STARTING_STATE, STARTED_STATE:
 			select {
-			case s := <-p.signalChan:
+			case s, ok := <-p.signalChan:
+				if !ok {
+					goto EXIT
+				}
 				p.handleSignal(s)
 			case <-done:
-				var zero M
-				return zero, false, nil
+				goto EXIT
 			default:
 				break PROCESS_SIGNALS
 			}
 
 		case EXITING_STATE, EXITED_STATE:
-			var zero M
-			return zero, false, p.exitReason
+			goto EXIT
 		}
 	}
 
@@ -100,18 +99,25 @@ PROCESS_MESSAGES:
 		}
 
 	case EXITING_STATE, EXITED_STATE:
-		var zero M
-		return zero, false, p.exitReason
+		goto EXIT
 	}
 
 	select {
-	case s := <-p.signalChan:
+	case s, ok := <-p.signalChan:
+		if !ok {
+			goto EXIT
+		}
 		p.handleSignal(s)
 		goto PROCESS_MESSAGES
 	case <-done:
-		var zero M
-		return zero, false, nil
+		goto EXIT
 	}
+EXIT:
+	var zero M
+	if p.state == EXITING_STATE || p.state == EXITED_STATE {
+		return zero, false, p.exitReason
+	}
+	return zero, false, nil
 }
 
 func Exit[S Sendable](s S, reason error) {

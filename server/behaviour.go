@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"time"
@@ -16,6 +17,7 @@ type Serverable[
 	Cs process.Message,
 	Ct process.Message,
 ] interface {
+	Context() context.Context
 	ChildSpec() ChildSpec
 	Init(I) (Continue[Ct], error)
 	HandleCall(Cl, process.PID) (Response[R], Continue[Ct], error)

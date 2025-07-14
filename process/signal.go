@@ -51,9 +51,9 @@ func unlinkSignal(unlink RequestMsg[*Ref]) signal[Message] {
 }
 
 type exitSig struct {
-	PID      PID
-	Receiver *Ref
-	Reason   error
+	PID    PID
+	Ref    *Ref
+	Reason error
 }
 
 func (e exitSig) ToExit() ExitMsg {
@@ -63,14 +63,14 @@ func (e exitSig) ToExit() ExitMsg {
 	}
 }
 
-func exitSignal(flags signalFlags, sender PID, receiver *Ref, reason error) signal[Message] {
+func exitSignal(flags signalFlags, sender PID, ref *Ref, reason error) signal[Message] {
 	return signal[Message]{
 		_type: EXIT_SIGNAL,
 		flags: flags,
 		message: exitSig{
-			PID:      sender,
-			Receiver: receiver,
-			Reason:   reason,
+			PID:    sender,
+			Ref:    ref,
+			Reason: reason,
 		},
 	}
 }

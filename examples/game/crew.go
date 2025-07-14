@@ -1,12 +1,14 @@
 package game
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"math/rand"
 	"time"
 
 	"github.com/Morgahl/gotp"
+	"github.com/Morgahl/gotp/debug"
 	"github.com/Morgahl/gotp/process"
 	"github.com/Morgahl/gotp/server"
 )
@@ -16,9 +18,9 @@ const (
 	// MID_DURATION = 5 * time.Millisecond
 	// MAX_DURATION = 500 * time.Millisecond
 
-	MIN_DURATION = 1 * time.Second
-	MID_DURATION = 2 * time.Second
-	MAX_DURATION = 3 * time.Second
+	MIN_DURATION = 2 * time.Second
+	MID_DURATION = 3 * time.Second
+	MAX_DURATION = 5 * time.Second
 )
 
 var _ server.Supervisable = &Crew{}
@@ -40,12 +42,17 @@ func NewCrew(id gotp.Atom) *Crew {
 	return &c
 }
 
+func (f *Crew) Context() context.Context {
+	return f.server.Process().Context()
+}
+
 func (f *Crew) ChildSpec() server.ChildSpec {
 	return server.ChildSpec{
-		ID:       f.id,
-		Restart:  server.TRANSIENT,
-		Shutdown: gotp.DEFAULT_SHUTDOWN,
-		Type:     server.WORKER,
+		ID:        f.id,
+		Restart:   server.TRANSIENT,
+		Shutdown:  gotp.DEFAULT_SHUTDOWN,
+		Type:      server.WORKER,
+		SpawnOpts: []process.SpawnOpt{process.Named(f.id)},
 	}
 }
 
@@ -63,10 +70,11 @@ func (f *Crew) Init(opts gotp.Options) (c server.Continue[any], err error) {
 		return flags
 	})
 	start := time.Now()
-	slog.Info("Crew.Init", "id", f.id, "pid", f.server.PID(), "took", time.Since(start), "opts", opts)
+	slog.DebugContext(f.Context(), "Crew.Init", "took", time.Since(start), "opts", opts)
 	f.wi = workItem{
-		id:  f.id,
-		rem: rand.Intn(100) + 101,
+		id: f.id,
+		// rem: rand.Intn(15) + 16,
+		rem: 1,
 	}
 	f.server.Send(server.CastMsg(f.wi))
 	return server.NoCont[any](), nil
@@ -74,30 +82,32 @@ func (f *Crew) Init(opts gotp.Options) (c server.Continue[any], err error) {
 
 func (f *Crew) HandleCast(work workItem) (server.Continue[any], error) {
 	if work != f.wi {
-		return server.NoCont[any](), fmt.Errorf("unexpected work item: %v", work)
+		debug.Assert(f.wi.rem == 0, "Crew.HandleCast unexpected work item expected %v, got %v", f.wi, work)
+		slog.InfoContext(f.Context(), "Crew.HandleCast new work item", "work", work)
+		f.wi = work
 	}
-	f.wi.rem--
 	if f.wi.rem >= 1 {
+		f.wi.rem--
+		slog.DebugContext(f.Context(), "Crew.HandleCast working", "work", f.wi)
 		load := assessWork()
 		f.wi.taken += load
 		f.server.SendAfter(server.CastMsg(f.wi), load)
 	} else {
-		f.server.Stop(process.NORMAL)
-		return server.NoCont[any](), nil
+		return server.Stop[any](process.NORMAL), nil
 	}
 	return server.NoCont[any](), nil
 }
 
 func (f *Crew) HandleInfo(msg process.Message) (server.Continue[any], error) {
-	slog.Debug("Crew.HandleInfo", "id", f.id, "pid", f.server.PID(), "msg", msg)
+	slog.DebugContext(f.Context(), "Crew.HandleInfo", "msg", msg)
 	switch m := msg.(type) {
 	case process.ExitMsg:
 		if m.PID == f.server.PID() {
-			slog.Info("Crew.HandleInfo", "id", f.id, "pid", f.server.PID(), "exit", m)
-			return server.NoCont[any](), m.Reason
+			slog.InfoContext(f.Context(), "Crew.HandleInfo", "exit", m)
+			return server.Stop[any](m.Reason), nil
 		}
 	default:
-		slog.Warn("Crew.HandleInfo", "id", f.id, "pid", f.server.PID(), "unexpected", m)
+		slog.WarnContext(f.Context(), "Crew.HandleInfo", "unexpected", m)
 		return server.NoCont[any](), fmt.Errorf("unexpected message: %T", m)
 	}
 	return server.NoCont[any](), nil
@@ -105,9 +115,9 @@ func (f *Crew) HandleInfo(msg process.Message) (server.Continue[any], error) {
 
 func (f *Crew) Terminate(reason error) error {
 	if f.wi.rem > 0 {
-		slog.Error("Crew.Terminate", "id", f.id, "pid", f.server.PID(), "work", f.wi, "reason", reason)
+		slog.ErrorContext(f.Context(), "Crew.Terminate", "work", f.wi, "reason", reason)
 	} else {
-		slog.Info("Crew.Terminate", "id", f.id, "pid", f.server.PID(), "work", f.wi, "reason", reason)
+		slog.InfoContext(f.Context(), "Crew.Terminate", "work", f.wi, "reason", reason)
 	}
 	return reason
 }
@@ -132,11 +142,9 @@ func (w workItem) LogValue() slog.Value {
 
 func assessWork() time.Duration {
 	switch n := rand.Float64(); {
-	case n <= 0.6:
-		return time.Duration(rand.Int63n(int64(MIN_DURATION)))
-	case n <= 0.8:
+	case n <= 0.33:
 		return time.Duration(rand.Int63n(int64(MID_DURATION-MIN_DURATION))) + MIN_DURATION
-	case n <= 0.95:
+	case n <= 0.67:
 		return time.Duration(rand.Int63n(int64(MAX_DURATION-MID_DURATION))) + MID_DURATION
 	default:
 		return time.Duration(rand.Int63n(int64(MAX_DURATION))) + MID_DURATION

@@ -44,6 +44,7 @@ type contAtom uint8
 const (
 	NO_CONTINUE contAtom = iota
 	CONTINUE
+	STOP
 )
 
 type Continue[C any] struct {
@@ -57,6 +58,10 @@ func NoCont[C any]() Continue[C] {
 
 func Cont[C any](contArg C) Continue[C] {
 	return Continue[C]{atom: CONTINUE, arg: contArg}
+}
+
+func Stop[C any](reason C) Continue[C] {
+	return Continue[C]{atom: STOP, arg: reason}
 }
 
 type call[M process.Message, R process.Message] struct {

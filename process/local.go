@@ -42,7 +42,7 @@ func stepSerial() {
 	atomic.StoreUint64(&localID, 0)
 }
 
-func register(p *Process) func() {
+func registerPID(p *Process) func() {
 	pid := p.PID()
 	pidRegistryMu.Lock()
 	if _, exists := pidRegistry[pid]; exists {
@@ -66,6 +66,16 @@ func sendPID(pid PID, msg Message) {
 	if exists {
 		proc.send(messageSignal(no_FLAGS, msg))
 	}
+}
+
+func registerNamed(name gotp.Atom, ref *Ref) {
+	nameRegistryMu.Lock()
+	if _, exists := nameRegistry[name]; exists {
+		nameRegistryMu.Unlock()
+		debug.Throw("Process with name %s already registered", name)
+	}
+	nameRegistry[name] = ref
+	nameRegistryMu.Unlock()
 }
 
 func sendNamed(name gotp.Atom, msg Message) {

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"time"
@@ -60,6 +61,10 @@ func (s Server[I, Cl, R, Cs, Ct]) String() string {
 	return fmt.Sprintf("Server[%T](server: %s, process: %s, initArg: %v)", s.server, s.server, s.process.PID(), s.initArg)
 }
 
+func (s *Server[I, Cl, R, Cs, Ct]) Context() context.Context {
+	return s.process.Context()
+}
+
 func (s *Server[I, Cl, R, Cs, Ct]) ChildSpec() ChildSpec {
 	return s.server.ChildSpec()
 }
@@ -97,10 +102,6 @@ func (s *Server[I, Cl, R, Cs, Ct]) Cast(msg Cs) {
 
 func (s *Server[I, Cl, R, Cs, Ct]) Info(msg process.Message) {
 	process.Send(s.process, msg)
-}
-
-func (s *Server[I, Cl, R, Cs, Ct]) Stop(reason error) {
-	process.Send(s.process, StopMsg(reason))
 }
 
 func (s *Server[I, Cl, R, Cs, Ct]) PID() process.PID {
@@ -143,7 +144,7 @@ func (s *Server[I, Cl, R, Cs, Ct]) loop(sig chan error) process.RunFn {
 		var resp Response[R]
 		defer func() {
 			reason = debug.Recover(recover(), "Server.loop", reason)
-			s.process.Exit(s.server.Terminate(reason))
+			reason = s.server.Terminate(reason)
 			if sig != nil && len(sig) < cap(sig) {
 				sig <- reason
 				close(sig)
@@ -158,7 +159,12 @@ func (s *Server[I, Cl, R, Cs, Ct]) loop(sig chan error) process.RunFn {
 		for {
 			if reason != nil {
 				// stop processing messages
-				slog.Debug("Server.loop: exiting due to reason", slog.Any("pid", p.PID()), slog.Any("reason", reason))
+				slog.DebugContext(s.Context(), "Server.loop: exiting due to reason", slog.Any("reason", reason))
+				return
+			} else if cont.atom == STOP {
+				// We have a stop message, we should terminate the server.
+				slog.DebugContext(s.Context(), "Server.loop: received stop from handler", slog.Any("reason", cont.arg))
+				reason = any(cont.arg).(error)
 				return
 			} else if cont.atom == CONTINUE {
 				// We have a continuation, we should process it first and then continue the loop.
@@ -172,20 +178,20 @@ func (s *Server[I, Cl, R, Cs, Ct]) loop(sig chan error) process.RunFn {
 			} else if !ok {
 				debug.Throw("Server.loop: Process message queue closed unexpectedly for PID %s", p.PID())
 			}
-			slog.Debug("Server.loop: received message", slog.Any("pid", p.PID()), slog.Any("message", msg))
+			slog.DebugContext(s.Context(), "Server.loop: received message", slog.Any("message", msg))
 			switch msg := msg.(type) {
 			case stop:
-				slog.Debug("Server.loop: received stop message", slog.Any("pid", p.PID()), slog.Any("reason", msg.reason))
+				slog.DebugContext(s.Context(), "Server.loop: received stop message", slog.Any("reason", msg.reason))
 				// We have a stop message, we should terminate the server.
 				return msg.reason
 
 			case process.ExitMsg:
-				slog.Debug("Server.loop: received exit message", slog.Any("pid", p.PID()), slog.Any("reason", msg.Reason))
+				slog.DebugContext(s.Context(), "Server.loop: received exit message", slog.Any("reason", msg.Reason))
 				// We have an Exit message
 				cont, reason = s.server.HandleInfo(msg)
 
 			case call[Cl, R]:
-				slog.Debug("Server.loop: received call message", slog.Any("pid", p.PID()), slog.Any("message", msg))
+				slog.DebugContext(s.Context(), "Server.loop: received call message", slog.Any("message", msg))
 				// We have a synchronous call and a chan to close after conditionally sending a
 				// response back to the caller.
 				resp, cont, reason = s.server.HandleCall(msg.req, msg.from)
@@ -204,12 +210,12 @@ func (s *Server[I, Cl, R, Cs, Ct]) loop(sig chan error) process.RunFn {
 				}
 
 			case cast[Cs]:
-				slog.Debug("Server.loop: received cast message", slog.Any("pid", p.PID()), slog.Any("message", msg))
+				slog.DebugContext(s.Context(), "Server.loop: received cast message", slog.Any("message", msg))
 				// We have an asynchronous call
 				cont, reason = s.server.HandleCast(msg.req)
 
 			default:
-				slog.Debug("Server.loop: received unknown message", slog.Any("pid", p.PID()), slog.Any("message", msg))
+				slog.DebugContext(s.Context(), "Server.loop: received unknown message", slog.Any("message", msg))
 				// We have an Info or some other message that we don't know how to handle.
 				cont, reason = s.server.HandleInfo(msg)
 			}
