@@ -82,6 +82,7 @@ func (Game) Version() application.Version {
 func (f Game) Start(st application.StartType) (server.Supervisable, error) {
 	if st.IsNormal() {
 		// return NewTeam("teams", supervisor.Flags{}, buildTeams("quartermaster", greekList[:10], namesList[:10])...), nil
+		// return NewTeam("teams", supervisor.Flags{}, buildTeams("quartermaster", greekList, namesList)...), nil
 		return NewTeam("teams", supervisor.Flags{}, buildTeams("quartermaster", greekGreekList, greekNamesList)...), nil
 	} else if _, ok := st.IsFailover(); ok {
 		return nil, errors.New("failover not supported in Game")
@@ -103,7 +104,7 @@ func permuteLists(left, right []gotp.Atom) []gotp.Atom {
 
 func buildTeams(workAgent gotp.Atom, teams, crew []gotp.Atom) []server.Supervisable {
 	var supervisors []server.Supervisable
-	supervisors = append(supervisors, WorkAgent(workAgent, 10*uint64(len(teams)*len(crew))))
+	supervisors = append(supervisors, WorkAgent(workAgent, 2*uint64(len(teams)*len(crew))))
 	for _, t := range teams {
 		supervisors = append(supervisors, NewTeam(t, supervisor.Flags{}, buildCrew(workAgent, t, crew)...))
 	}

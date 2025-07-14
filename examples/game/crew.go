@@ -3,7 +3,6 @@ package game
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"math/rand"
 	"time"
 
@@ -64,7 +63,6 @@ func (f *Crew) StartLink(linked *process.Process, opts ...process.SpawnOpt) (s s
 }
 
 func (f *Crew) Init(opts gotp.Options) (c server.Continue[any], err error) {
-	slog.DebugContext(f.Context(), "Crew.Init", "opts", opts)
 	f.server.Process().UpdateFlags(func(flags process.ProcessFlags) process.ProcessFlags {
 		flags |= process.TRAP_EXIT_FLAG
 		return flags
@@ -73,33 +71,27 @@ func (f *Crew) Init(opts gotp.Options) (c server.Continue[any], err error) {
 }
 
 func (f *Crew) HandleContinue(msg any) (server.Continue[any], error) {
-	slog.DebugContext(f.Context(), "Crew.HandleContinue", "msg", msg)
 	switch m := msg.(type) {
 	case gotp.Atom:
 		switch m {
 		case atom_GET_WORK:
 			if w, ok := GetWork(f.agent, f.server.PID()); ok {
-				slog.DebugContext(f.Context(), "Crew.HandleContinue got work", "work", w)
 				f.server.Send(server.CastMsg(w))
 				return server.NoCont[any](), nil
 			}
-			slog.DebugContext(f.Context(), "Crew.HandleContinue no more work", "agent", f.agent)
 			return server.Stop[any](process.NORMAL), nil
 		}
 	}
-	slog.WarnContext(f.Context(), "Crew.HandleContinue", "unexpected", msg)
 	return server.NoCont[any](), nil
 }
 
 func (f *Crew) HandleCast(work workItem) (server.Continue[any], error) {
 	if work.need != work.done {
-		slog.DebugContext(f.Context(), "Crew.HandleCast working", "work", work)
 		work.done++
 		load := assessWork()
 		work.taken += load
 		f.server.SendAfter(server.CastMsg(work), load)
 	} else {
-		slog.DebugContext(f.Context(), "Crew.HandleCast work complete", "work", work)
 		SubmitProcessedWork(f.agent, work)
 		return server.Cont[any](atom_GET_WORK), nil
 	}
@@ -107,15 +99,12 @@ func (f *Crew) HandleCast(work workItem) (server.Continue[any], error) {
 }
 
 func (f *Crew) HandleInfo(msg process.Message) (server.Continue[any], error) {
-	slog.DebugContext(f.Context(), "Crew.HandleInfo", "msg", msg)
 	switch m := msg.(type) {
 	case process.ExitMsg:
 		if m.PID == f.server.PID() {
-			slog.DebugContext(f.Context(), "Crew.HandleInfo", "exit", m)
 			return server.Stop[any](m.Reason), nil
 		}
 	default:
-		slog.WarnContext(f.Context(), "Crew.HandleInfo", "unexpected", m)
 		return server.NoCont[any](), fmt.Errorf("unexpected message: %T", m)
 	}
 	return server.NoCont[any](), nil

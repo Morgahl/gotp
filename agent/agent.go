@@ -2,8 +2,6 @@ package agent
 
 import (
 	"context"
-	"fmt"
-	"log/slog"
 
 	"github.com/Morgahl/gotp"
 	"github.com/Morgahl/gotp/process"
@@ -64,17 +62,13 @@ func (a *Agent[T]) Init(initFn InitFn[T]) (server.Continue[any], error) {
 func (a *Agent[T]) HandleCall(msg process.Message, from process.PID) (server.Response[T], server.Continue[any], error) {
 	switch msg := msg.(type) {
 	case GetFn[T]:
-		slog.DebugContext(a.Context(), "HandleCall", slog.Any("from", from), slog.Any("msg", fmt.Sprintf("%T", msg)))
 		return server.Reply(msg(*a.state)), server.NoCont[any](), nil
 	case GetAndUpdateFn[T]:
-		slog.DebugContext(a.Context(), "HandleCall", slog.Any("from", from), slog.Any("msg", fmt.Sprintf("%T", msg)))
 		return server.Reply(msg(a.state)), server.NoCont[any](), nil
 	case UpdateFn[T]:
-		slog.DebugContext(a.Context(), "HandleCall", slog.Any("from", from), slog.Any("msg", fmt.Sprintf("%T", msg)))
 		msg(a.state)
 		return server.NoReply[T](), server.NoCont[any](), nil
 	default:
-		slog.DebugContext(a.Context(), "HandleCall", slog.Any("from", from), slog.Any("msg", fmt.Sprintf("%T", msg)))
 		cont, err := a.HandleInfo(msg)
 		return server.NoReply[T](), cont, err
 	}
@@ -83,7 +77,6 @@ func (a *Agent[T]) HandleCall(msg process.Message, from process.PID) (server.Res
 func (a *Agent[T]) HandleCast(msg process.Message) (server.Continue[any], error) {
 	switch msg := msg.(type) {
 	case UpdateFn[T]:
-		slog.DebugContext(a.Context(), "HandleCast", slog.Any("msg", fmt.Sprintf("%T", msg)))
 		msg(a.state)
 		return server.NoCont[any](), nil
 	default:
@@ -95,11 +88,9 @@ func (a *Agent[T]) HandleInfo(msg process.Message) (server.Continue[any], error)
 	switch msg := msg.(type) {
 	case process.ExitMsg:
 		if msg.PID == a.server.PID() {
-			slog.DebugContext(a.Context(), "HandleInfo", "exit", msg)
 			return server.Stop[any](msg.Reason), nil
 		}
 	}
-	slog.WarnContext(a.Context(), "HandleInfo", "unexpected", msg)
 	return server.NoCont[any](), nil
 }
 

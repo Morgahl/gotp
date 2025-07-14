@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/Morgahl/gotp"
@@ -159,11 +158,9 @@ func (s *Server[I, Cl, R, Cs, Ct]) loop(sig chan error) process.RunFn {
 		for {
 			if reason != nil {
 				// stop processing messages
-				slog.DebugContext(s.Context(), "Server.loop: exiting due to reason", slog.Any("reason", reason))
 				return
 			} else if cont.atom == STOP {
 				// We have a stop message, we should terminate the server.
-				slog.DebugContext(s.Context(), "Server.loop: received stop from handler", slog.Any("reason", cont.arg))
 				reason = any(cont.arg).(error)
 				return
 			} else if cont.atom == CONTINUE {
@@ -178,20 +175,16 @@ func (s *Server[I, Cl, R, Cs, Ct]) loop(sig chan error) process.RunFn {
 			} else if !ok {
 				debug.Throw("Server.loop: Process message queue closed unexpectedly for PID %s", p.PID())
 			}
-			slog.DebugContext(s.Context(), "Server.loop: received message", slog.Any("message", msg))
 			switch msg := msg.(type) {
 			case stop:
-				slog.DebugContext(s.Context(), "Server.loop: received stop message", slog.Any("reason", msg.reason))
 				// We have a stop message, we should terminate the server.
 				return msg.reason
 
 			case process.ExitMsg:
-				slog.DebugContext(s.Context(), "Server.loop: received exit message", slog.Any("reason", msg.Reason))
 				// We have an Exit message
 				cont, reason = s.server.HandleInfo(msg)
 
 			case call[Cl, R]:
-				slog.DebugContext(s.Context(), "Server.loop: received call message", slog.Any("message", msg))
 				// We have a synchronous call and a chan to close after conditionally sending a
 				// response back to the caller.
 				resp, cont, reason = s.server.HandleCall(msg.req, msg.from)
@@ -210,12 +203,10 @@ func (s *Server[I, Cl, R, Cs, Ct]) loop(sig chan error) process.RunFn {
 				}
 
 			case cast[Cs]:
-				slog.DebugContext(s.Context(), "Server.loop: received cast message", slog.Any("message", msg))
 				// We have an asynchronous call
 				cont, reason = s.server.HandleCast(msg.req)
 
 			default:
-				slog.DebugContext(s.Context(), "Server.loop: received unknown message", slog.Any("message", msg))
 				// We have an Info or some other message that we don't know how to handle.
 				cont, reason = s.server.HandleInfo(msg)
 			}

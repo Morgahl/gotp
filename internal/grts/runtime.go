@@ -40,7 +40,7 @@ func _init(rootCtx ctx.Cancellable, app application.Application, wg *sync.WaitGr
 			rootCtx.Cancel(reason)
 		}()
 
-		slog.DebugContext(rootCtx, "grts._init: starting application", slog.Any("name", app.Name()), slog.Any("version", app.Version()))
+		slog.DebugContext(rootCtx, "grts._init: calling start hook", slog.Any("name", app.Name()), slog.Any("version", app.Version()))
 
 		var root server.Supervisable
 		startUp := time.Now()
@@ -49,7 +49,7 @@ func _init(rootCtx ctx.Cancellable, app application.Application, wg *sync.WaitGr
 			return reason
 		}
 
-		slog.DebugContext(rootCtx, "grts._init: application start hook called", slog.Duration("took", time.Since(startUp)))
+		slog.DebugContext(rootCtx, "grts._init: starting application", slog.Duration("took", time.Since(startUp)))
 		var sup server.Supervised
 		if sup, reason = root.StartLink(p); reason != nil {
 			slog.ErrorContext(rootCtx, "grts._init: failed to start supervision tree", slog.Any("error", reason))
@@ -58,7 +58,7 @@ func _init(rootCtx ctx.Cancellable, app application.Application, wg *sync.WaitGr
 
 		appStart := time.Now()
 		defer func(appStart time.Time) {
-			slog.InfoContext(rootCtx, "grts._init: application exited", slog.Duration("after", time.Since(appStart)))
+			slog.InfoContext(rootCtx, "grts._init: exiting", slog.Duration("after", time.Since(appStart)))
 		}(appStart)
 		slog.InfoContext(rootCtx, "grts._init: supervision tree started", slog.Any("pid", sup.PID()), slog.Duration("took", time.Since(startUp)))
 
@@ -80,6 +80,9 @@ func _init(rootCtx ctx.Cancellable, app application.Application, wg *sync.WaitGr
 	EXIT:
 		slog.DebugContext(rootCtx, "grts._init: shutting down supervision tree")
 		shutDown := time.Now()
+		defer func(shutDown time.Time) {
+			slog.InfoContext(rootCtx, "grts._init: application exited", slog.Duration("took", time.Since(shutDown)))
+		}(shutDown)
 		sup.Exit(reason)
 		slog.DebugContext(rootCtx, "grts._init: waiting for exit messages", slog.Duration("took", time.Since(shutDown)))
 		msg, ok, err := process.ReceiveWithTimeout[process.ExitMsg](p, 0)
@@ -93,7 +96,6 @@ func _init(rootCtx ctx.Cancellable, app application.Application, wg *sync.WaitGr
 		} else if !ok {
 			slog.DebugContext(rootCtx, "grts._init: process exited without exit message", slog.Duration("took", time.Since(shutDown)))
 		}
-		slog.InfoContext(rootCtx, "grts._init: exiting", slog.Duration("took", time.Since(shutDown)))
 		return msg.Reason
 	}
 }

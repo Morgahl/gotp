@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"slices"
 	"time"
 
@@ -99,10 +98,7 @@ func (s *StaticSupervisor) Init(opts gotp.Options) (cont server.Continue[process
 	var flags Flags
 	var children []server.Supervisable
 
-	start := time.Now()
-	slog.DebugContext(s.Context(), "StaticSupervisor.Init", slog.Any("opts", opts))
 	if flags, children, err = s.sup.Init(opts); err != nil {
-		slog.ErrorContext(s.Context(), "StaticSupervisor.Init failed", slog.Any("error", err))
 		return server.NoCont[process.Message](), err
 	}
 	s.flags = flags.ApplyDefaults()
@@ -110,20 +106,16 @@ func (s *StaticSupervisor) Init(opts gotp.Options) (cont server.Continue[process
 	s.childIDs = make(map[gotp.Atom]process.PID, len(children))
 	s.children = make(map[process.PID]child, len(children))
 
-	slog.DebugContext(s.Context(), "StaticSupervisor.Init starting children", slog.Int("specs", len(s.specs)))
 	for _, child := range s.specs {
 		if child == nil {
-			slog.ErrorContext(s.Context(), "StaticSupervisor.Init child is nil, skipping")
 			continue
 		} else if supervised, err := s.startChild(child); err != nil {
-			slog.ErrorContext(s.Context(), "StaticSupervisor.Init failed to start child", slog.Any("error", err), slog.Any("child_id", child.ChildSpec().ID))
 			return server.NoCont[process.Message](), err
 		} else {
 			s.registerChild(supervised)
 		}
 	}
 
-	slog.DebugContext(s.Context(), "StaticSupervisor.Init children started", slog.Duration("took", time.Since(start)), slog.Int("children", len(s.children)))
 	return server.NoCont[process.Message](), nil
 }
 
@@ -133,7 +125,6 @@ func (s *StaticSupervisor) HandleCall(msg process.Message, _ process.PID) (resp 
 		if pid, ok := s.findChild(m.child); ok {
 			return server.Reply[process.Message](server.NewAlreadyStarted(pid)), server.NoCont[process.Message](), nil
 		} else if supervised, err := s.startChild(m.child); err != nil {
-			slog.ErrorContext(s.Context(), "StaticSupervisor.HandleCall failed to start child", slog.Any("error", err))
 			return server.Reply[process.Message](err), server.NoCont[process.Message](), nil
 		} else {
 			s.registerChild(supervised)
@@ -164,55 +155,42 @@ func (s *StaticSupervisor) HandleContinue(arg process.Message) (cont server.Cont
 func (s *StaticSupervisor) HandleInfo(info process.Message) (cont server.Continue[process.Message], err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			slog.ErrorContext(s.Context(), "StaticSupervisor.HandleInfo recovered from panic", slog.Any("info", info), slog.Any("recover", r))
 		}
 	}()
-	slog.DebugContext(s.Context(), "StaticSupervisor.HandleInfo", slog.Any("info", info))
 	switch info := info.(type) {
 	case process.ExitMsg:
 		if info.PID == s.server.PID() {
-			slog.DebugContext(s.Context(), "StaticSupervisor.HandleInfo received ExitMsg for self", slog.Any("msg", info))
 			return server.NoCont[process.Message](), info.Reason
 		}
 
-		slog.DebugContext(s.Context(), "StaticSupervisor.HandleInfo received ExitMsg", slog.Any("msg", info))
 		child, ok := s.findChildByPID(info.PID)
 		if !ok {
-			slog.WarnContext(s.Context(), "StaticSupervisor.HandleInfo received ExitMsg for unknown child", slog.Any("msg", info))
 			return server.NoCont[process.Message](), nil
 		}
 		// need to call this here as the deregisterChild will remove the child from the map
 		shouldRestart := s.shouldRestart(info.PID, info.Reason)
 		if !s.deregisterChild(info.PID) {
-			slog.WarnContext(s.Context(), "StaticSupervisor.HandleInfo failed to deregister child", slog.Any("msg", info))
 			return server.NoCont[process.Message](), nil
 		} else if !shouldRestart {
-			slog.DebugContext(s.Context(), "StaticSupervisor.HandleInfo child will not be restarted", slog.Any("msg", info))
 			return server.NoCont[process.Message](), nil
 		}
-		slog.DebugContext(s.Context(), "StaticSupervisor.HandleInfo restarting child", slog.Any("child", child.supervised.PID()), slog.Any("msg", info))
-		switch resp := s.StartChild(child.supervised).(type) {
+		switch s.StartChild(child.supervised).(type) {
 		case process.PID, server.AlreadyStarted:
-			slog.DebugContext(s.Context(), "StaticSupervisor.HandleInfo child restarted", slog.Any("resp", resp))
 			return server.NoCont[process.Message](), nil
 		case error:
-			slog.ErrorContext(s.Context(), "StaticSupervisor.HandleInfo failed to start child", slog.Any("error", resp))
 			// TODO: track this timer somewhere?
 			// TODO: also this likely need to be a computed reset for the after timer
 			_ = s.server.SendAfter(server.CallMsg[process.Message, process.Message](s.PID(), startChild{child.supervised}), s.flags.ResetPeriod)
 			return server.NoCont[process.Message](), err
 
 		default:
-			slog.ErrorContext(s.Context(), "StaticSupervisor.HandleInfo unexpected response type", slog.Any("resp", resp))
 			return server.NoCont[process.Message](), nil
 		}
 	}
-	slog.WarnContext(s.Context(), "StaticSupervisor.HandleInfo received unknown message", slog.Any("info", info))
 	return server.NoCont[process.Message](), nil
 }
 
 func (s *StaticSupervisor) Terminate(reason error) (newReson error) {
-	slog.DebugContext(s.Context(), "StaticSupervisor.Terminate", slog.Any("reason", reason))
 	children := make([]child, 0, len(s.children))
 	for _, c := range s.children {
 		children = append(children, c)
@@ -234,14 +212,12 @@ func (s *StaticSupervisor) Terminate(reason error) (newReson error) {
 		child.supervised.Send(process.ExitMsg{PID: pid, Reason: reason})
 
 		if msg, ok, err := process.ReceiveWithTimeout[process.ExitMsg](s.server.Process(), timeout); err != nil {
-			slog.ErrorContext(s.Context(), "StaticSupervisor.Terminate: error receiving ExitMsg", slog.Any("child_pid", pid), slog.Duration("timeout", timeout), slog.Any("error", err))
 			return err
 		} else if ok {
 			s.deregisterChild(msg.PID)
 			continue
 		} else {
 			s.deregisterChild(msg.PID)
-			slog.WarnContext(s.Context(), "StaticSupervisor.Terminate: child did not exit in time", slog.Any("child_pid", pid), slog.Duration("timeout", timeout), slog.Any("reason", reason))
 		}
 	}
 	return reason
@@ -259,11 +235,9 @@ func (s *StaticSupervisor) findChild(child server.Supervisable) (process.PID, bo
 
 func (s *StaticSupervisor) findChildByPID(pid process.PID) (child child, ok bool) {
 	if pid == process.PIDZero() {
-		slog.WarnContext(s.Context(), "StaticSupervisor.findChildByPID called with PIDZero, returning zero child")
 		return child, false
 	}
 	child, ok = s.children[pid]
-	slog.DebugContext(s.Context(), "StaticSupervisor.findChildByPID", slog.Any("child_pid", pid), slog.Bool("found", ok), slog.Any("child", child))
 	return child, ok
 }
 
@@ -324,10 +298,6 @@ func (s *StaticSupervisor) shouldRestart(pid process.PID, reason error) (restart
 		if restart {
 			s.children[pid] = cs
 		}
-	}
-
-	if restart {
-		slog.DebugContext(s.Context(), "StaticSupervisor.shouldRestart", slog.Any("child_pid", pid), slog.Any("reason", reason), slog.Bool("restart", restart), slog.Uint64("count", cs.restart.count), slog.Time("at", cs.restart.at), slog.Any("spec", spec))
 	}
 
 	return restart

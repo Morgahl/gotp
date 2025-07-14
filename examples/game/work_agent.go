@@ -27,19 +27,17 @@ func GetWork(name gotp.Atom, from process.PID) (workItem, bool) {
 	if !ok || !s.next {
 		return workItem{}, false
 	}
-	slog.Info("Generated work item", "work", s.workItem, "next", s.next)
+	slog.Debug("Generated work item", "work", s.workItem, "next", s.next)
 	return s.workItem, s.next
 }
 
 func SubmitProcessedWork(name gotp.Atom, work workItem) {
-	slog.Info("Submitting processed work", "work", work)
 	agent.Update(name, func(state *state) {
+		slog.Info("Submitted work", "work", work)
 		state.receivedProcessed(work)
 		if state.processed == state.wanted {
 			slog.Info("All work processed", "processed", state.processed, "wanted", state.wanted)
 			agent.Stop(name, process.NORMAL)
-		} else {
-			slog.Debug("Work processed", "processed", state.processed, "wanted", state.wanted)
 		}
 	})
 }

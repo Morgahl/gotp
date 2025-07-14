@@ -3,7 +3,6 @@ package process
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"slices"
 	"sync"
 	"time"
@@ -246,7 +245,6 @@ func (p *Process) handleExitSignal(f signalFlags, e exitSig) {
 	linked := f.IsLink()
 	linkFound := p.links.contains(e.PID, e.Ref)
 	if linked && linkFound {
-		slog.DebugContext(p.context, "process.handleExitSignal: removing link", slog.Any("exit", e), slog.Bool("linked", linked), slog.Bool("link_found", linkFound))
 		p.links.remove(e.PID, e.Ref)
 	}
 	trappingExits := p.flags.IsTrapExit()
@@ -258,9 +256,6 @@ func (p *Process) handleExitSignal(f signalFlags, e exitSig) {
 	//   is not the same as the receiver
 	if (linked && !linkFound) ||
 		(e.Reason == KILL && !trappingExits && !samePid) {
-		slog.DebugContext(p.context, "process.handleExitSignal: silently dropping exit signal", slog.Any("exit", e),
-			slog.Bool("linked", linked), slog.Bool("link_found", linkFound),
-			slog.Any("reason", e.Reason), slog.Bool("trapping_exits", trappingExits), slog.Bool("same_pid", samePid))
 		return
 	}
 
@@ -269,17 +264,14 @@ func (p *Process) handleExitSignal(f signalFlags, e exitSig) {
 	// - the process is not trapping exits, the exit reason is something other than `normal`
 	// - the exit reason is `normal` and the sender is the same as the receiver and the link flag is not set
 	if !linked && e.Reason == KILL {
-		slog.DebugContext(p.context, "process.handleExitSignal: terminating process with KILL reason", slog.Any("exit", e))
 		p.state = EXITING_STATE
 		p.exitReason = KILLED
 		return
 	} else if !trappingExits && e.Reason != NORMAL {
-		slog.DebugContext(p.context, "process.handleExitSignal: terminating process with exit reason", slog.Any("exit", e))
 		p.state = EXITING_STATE
 		p.exitReason = e.Reason
 		return
 	} else if e.Reason == NORMAL && samePid && !linked {
-		slog.DebugContext(p.context, "process.handleExitSignal: terminating process with normal exit reason", slog.Any("exit", e))
 		p.state = EXITING_STATE
 		p.exitReason = NORMAL
 		return
@@ -292,7 +284,6 @@ func (p *Process) handleExitSignal(f signalFlags, e exitSig) {
 	if trappingExits ||
 		(!linked && e.Reason != KILL) ||
 		(linked && linkFound) {
-		slog.DebugContext(p.context, "process.handleExitSignal: pushing exit message to mailbox", slog.Any("exit", e))
 		p.pushMessage(e.ToExit())
 	}
 }
@@ -332,7 +323,6 @@ func (p *Process) aliveReply(r ReplyMsg[error]) {
 
 // handleSignal is always called from a functions that has the mailboxLock write-locked as well as the stateLock read-locked.
 func (p *Process) handleSignal(s signal[Message]) {
-	slog.DebugContext(p.context, "process.handleSignal", slog.Any("signal", s))
 	switch p.state {
 	case STARTED_STATE:
 		switch s._type {
