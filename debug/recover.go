@@ -3,6 +3,7 @@ package debug
 import (
 	"fmt"
 	"log/slog"
+	"runtime/debug"
 	"strings"
 )
 
@@ -14,6 +15,7 @@ type Recovered struct {
 	message string
 	err     error
 	r       error
+	stack   []byte
 }
 
 func Drop(r any) {}
@@ -27,9 +29,11 @@ func Recover(r any, message string, err error) error {
 	case Thrown:
 		rec.r = v
 	case error:
-		rec.r = fmt.Errorf("%s: panic: %w", message, v)
+		rec.r = fmt.Errorf("%s: panic error: %w", message, v)
+		rec.stack = debug.Stack()
 	default:
-		rec.r = fmt.Errorf("%s: panic: %v", message, v)
+		rec.r = fmt.Errorf("%s: panic unknown: %v", message, v)
+		rec.stack = debug.Stack()
 	}
 	return rec
 }

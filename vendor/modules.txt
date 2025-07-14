@@ -1,3 +1,0 @@
-# github.com/lmittmann/tint v1.1.2
-## explicit; go 1.21
-github.com/lmittmann/tint

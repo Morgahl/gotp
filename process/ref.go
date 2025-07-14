@@ -1,5 +1,10 @@
 package process
 
+import (
+	"fmt"
+	"log/slog"
+)
+
 type Ref struct {
 	pid    PID
 	sendFn func(s signal[Message])
@@ -18,4 +23,20 @@ func (r *Ref) send(s signal[Message]) {
 		return
 	}
 	r.sendFn(s)
+}
+
+func (r Ref) String() string {
+	if r.IsValid() {
+		return fmt.Sprintf("Ref%s", r.pid)
+	}
+
+	if r.sendFn != nil {
+		return "Ref<opaque>"
+	}
+
+	return "Ref<invalid>"
+}
+
+func (r Ref) LogValue() slog.Value {
+	return slog.StringValue(r.String())
 }

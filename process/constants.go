@@ -1,6 +1,7 @@
 package process
 
 import (
+	"strings"
 	"time"
 
 	"github.com/Morgahl/gotp"
@@ -60,6 +61,20 @@ func (f ProcessFlags) IsTrapExit() bool {
 	return f&TRAP_EXIT_FLAG != 0
 }
 
+func (f ProcessFlags) String() string {
+	var flags []string
+	if f.IsSensitive() {
+		flags = append(flags, "sensitive")
+	}
+	if f.IsTrapExit() {
+		flags = append(flags, "trap_exit")
+	}
+	if len(flags) == 0 {
+		return "none"
+	}
+	return strings.Join(flags, "|")
+}
+
 type signalFlags uint8
 
 const (
@@ -78,8 +93,8 @@ const (
 	// request_FLAG is used to indicate that the signal is a request message, i.e. it expects a reply
 	request_FLAG
 
-	// response_FLAG is used to indicate that the signal is a response to a request message
-	response_FLAG
+	// reply_FLAG is used to indicate that the signal is a response to a request message
+	reply_FLAG
 )
 
 func (f signalFlags) IsLink() bool {
@@ -98,8 +113,31 @@ func (f signalFlags) IsRequest() bool {
 	return f&request_FLAG != 0
 }
 
-func (f signalFlags) IsResponse() bool {
-	return f&response_FLAG != 0
+func (f signalFlags) IsReply() bool {
+	return f&reply_FLAG != 0
+}
+
+func (f signalFlags) String() string {
+	var flags []string
+	if f.IsLink() {
+		flags = append(flags, "link")
+	}
+	if f.IsMonitor() {
+		flags = append(flags, "monitor")
+	}
+	if f.IsCast() {
+		flags = append(flags, "cast")
+	}
+	if f.IsRequest() {
+		flags = append(flags, "request")
+	}
+	if f.IsReply() {
+		flags = append(flags, "reply")
+	}
+	if len(flags) == 0 {
+		return "none"
+	}
+	return strings.Join(flags, "|")
 }
 
 type signalType uint8

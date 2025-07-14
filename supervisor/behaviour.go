@@ -5,11 +5,12 @@ import (
 	"time"
 
 	"github.com/Morgahl/gotp"
+	"github.com/Morgahl/gotp/server"
 )
 
 type Supervisor[I any] interface {
-	ChildSpec() ChildSpec
-	Init(I) (Flags, []Supervisable, error)
+	ChildSpec() server.ChildSpec
+	Init(I) (Flags, []server.Supervisable, error)
 }
 
 type Strategy uint8

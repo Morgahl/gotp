@@ -2,6 +2,7 @@ package process
 
 import (
 	"errors"
+	"log/slog"
 	"slices"
 	"sync"
 	"time"
@@ -17,6 +18,7 @@ type Started interface {
 	PID() PID
 	Send(Message)
 	SendAfter(Message, time.Duration) *time.Timer
+	Exit(reason error)
 }
 
 type RunFn func(*Process) error
@@ -36,9 +38,6 @@ type Process struct {
 	monitors    refMap
 
 	// bookkeeping structures; must hold p.stateLock to access or modify these as appropriate
-	dirty        bool
-	lastGC       time.Time
-	gcInterval   time.Duration
 	messageSkips []int
 
 	// message passing structures
@@ -70,36 +69,32 @@ func SpawnMonitor(fn RunFn, monitor *Process, opts ...SpawnOpt) *Process {
 }
 
 func build(opts []SpawnOpt) *Process {
-	pid := nextPID()
 	p := &Process{
-		gcInterval: time.Second,
+		pid:        nextPID(),
+		links:      newRefMap(),
+		monitors:   newRefMap(),
+		signalChan: make(chan signal[Message], CHANNEL_SIZE),
 	}
 	for _, opt := range opts {
 		opt(p)
 	}
-	if p.signalChan == nil {
-		p.signalChan = make(chan signal[Message], CHANNEL_SIZE)
-	}
 	if p.mailbox == nil {
 		p.mailbox = make([]Message, 0, MAILBOX_SIZE)
 	}
-	if p.groupLeader == nil {
-		p.groupLeader = p.Ref()
-	}
-	p.pid = pid
 	p.state = STARTING_STATE
 	return p
 }
 
 func (p *Process) Start() {
 	p.stateLock.Lock()
-	defer p.stateLock.Unlock()
 	switch p.state {
 	case STARTED_STATE, EXITING_STATE, EXITED_STATE:
+		p.stateLock.Unlock()
 		debug.Throw("process.Start: cannot start process in state %s", p.state)
 	case STARTING_STATE:
 		p.state = STARTED_STATE
 		p.deregHandle = register(p)
+		p.stateLock.Unlock()
 		go p.run()
 	}
 }
@@ -107,7 +102,7 @@ func (p *Process) Start() {
 func (p *Process) Ref() *Ref {
 	return &Ref{
 		pid:    p.pid,
-		sendFn: func(s signal[Message]) { p.send(s) },
+		sendFn: p.send,
 	}
 }
 
@@ -121,22 +116,34 @@ func (p *Process) UpdateFlags(fn func(ProcessFlags) ProcessFlags) {
 	p.flags = fn(p.flags)
 }
 
+func (p *Process) Exit(reason error) {
+	p.send(exitSignal(no_FLAGS, p.pid, p.Ref(), reason))
+}
+
 func (p *Process) run() {
 	var reason error
 	defer func() {
 		reason = debug.Recover(recover(), "Process.run", reason)
 		p.stateLock.Lock()
-		defer p.stateLock.Unlock()
 		if p.deregHandle != nil {
 			p.deregHandle()
 			p.deregHandle = nil
 		}
 		for ref := range p.monitors.refs() {
-			ref.send(downSignal(p.PID(), ref, reason))
+			ref.send(downSignal(ref.pid, ref, reason))
 		}
 		for ref := range p.links.refs() {
-			ref.send(exitSignal(link_FLAG, p.PID(), ref, errorAsStringer{reason}))
+			ref.send(exitSignal(link_FLAG, ref.pid, ref, reason))
 		}
+		close(p.signalChan)
+		for range p.signalChan {
+			// sink the channel to ensure it is closed properly
+		}
+		p.state = EXITED_STATE
+		if p.exitReason == nil {
+			p.exitReason = reason
+		}
+		p.stateLock.Unlock()
 	}()
 	reason = p.runFn(p)
 }
@@ -145,56 +152,55 @@ func (p *Process) send(s signal[Message]) {
 	p.stateLock.RLock()
 	switch p.state {
 	case STARTING_STATE, STARTED_STATE:
+		p.stateLock.RUnlock()
 		p.signalChan <- s
 	}
-	p.stateLock.RUnlock()
 }
 
 func (p *Process) maybeGarbageCollect() {
 	if p.shouldGarbageCollect() {
-		p.stateLock.RUnlock()
-		p.stateLock.Lock()
 		p.garbageCollect()
-		p.stateLock.Unlock()
-		p.stateLock.RLock()
 	}
 }
 
 func (p *Process) shouldGarbageCollect() bool {
-	if !p.dirty {
-		return false
-	}
-
-	if p.lastGC.IsZero() {
-		return true
-	}
-	if p.gcInterval <= 0 {
-		return false
-	}
-	should := time.Since(p.lastGC) >= p.gcInterval
-	return should
+	return len(p.messageSkips)*4 > len(p.mailbox)
 }
 
 func (p *Process) garbageCollect() {
-	if !p.dirty {
+	p.links.garbageCollect()
+	p.monitors.garbageCollect()
+
+	// mailbox GC after here
+
+	switch len(p.messageSkips) {
+	case 0:
+		return
+	case 1:
+		skip := p.messageSkips[0]
+		mailbox := p.mailbox[:0]
+		mailbox = append(mailbox, p.mailbox[:skip]...)
+		mailbox = append(mailbox, p.mailbox[skip+1:]...)
+		p.mailbox = mailbox
+		p.messageSkips = p.messageSkips[:0]
 		return
 	}
 
-	p.links.garbageCollect()
-	p.monitors.garbageCollect()
 	slices.Sort(p.messageSkips)
+
+	last := -1
 	mailbox := p.mailbox[:0]
-	var mi, msi int
-	for ; mi < len(p.mailbox); mi++ {
-		if msi < len(p.messageSkips) && p.messageSkips[msi] == mi {
-			msi++
-			continue
-		}
-		mailbox = append(mailbox, p.mailbox[mi])
+	for msi := 0; msi < len(p.messageSkips); msi++ {
+		skip := p.messageSkips[msi]
+		mailbox = append(mailbox, p.mailbox[last+1:skip]...)
+		last = skip
 	}
+	if last+1 < len(p.mailbox) {
+		mailbox = append(mailbox, p.mailbox[last+1:]...)
+	}
+
 	p.mailbox = mailbox
-	p.messageSkips = p.messageSkips[:msi]
-	p.lastGC = time.Now()
+	p.messageSkips = p.messageSkips[:0]
 }
 
 // this must always be called while the stateLock is at least read-locked and the mailboxLock is write-locked
@@ -205,32 +211,49 @@ func (p *Process) pushMessage(m Message) {
 }
 
 // this must always be called while the stateLock is at least read-locked and the mailboxLock is write-locked
-func (p *Process) link(re *Ref) {
-	p.links.push(re)
+func (p *Process) linkRequest(re RequestMsg[*Ref]) {
+	p.links.push(re.From, re.Message)
+	ref := p.Ref()
+	re.Ref.send(linkReplySignal(ReplyMsg[*Ref]{
+		From:    p.pid,
+		Ref:     ref,
+		Message: re.Message,
+	}))
+}
+
+func (p *Process) linkReply(re ReplyMsg[*Ref]) {
+	p.links.push(re.From, re.Message)
 }
 
 // this must always be called while the stateLock is at least read-locked and the mailboxLock is write-locked
-func (p *Process) unlink(re *Ref) {
-	removed := p.links.remove(re)
-	p.dirty = p.dirty || removed
+func (p *Process) unlink(re RequestMsg[*Ref]) {
+	p.links.remove(re.From, re.Message)
 }
 
-func (p *Process) Exit(reason error) {
-	p.send(exitSignal(no_FLAGS, p.pid, nil, reason))
+// this must always be called while the stateLock is at least read-locked and the mailboxLock is write-locked
+func (p *Process) monitor(re RequestMsg[*Ref]) {
+	p.monitors.push(re.From, re.Message)
+}
+
+// this must always be called while the stateLock is at least read-locked and the mailboxLock is write-locked
+func (p *Process) deMonitor(re RequestMsg[*Ref]) {
+	p.monitors.remove(re.From, re.Message)
 }
 
 // this must always be called while the stateLock is at least read-locked and the mailboxLock is write-locked
 func (p *Process) handleExitSignal(f signalFlags, e exitSig) {
 	linked := f.IsLink()
-	linkFound := p.links.contains(e.Receiver)
+	linkFound := p.links.contains(e.PID, e.Receiver)
 	trappingExits := p.flags.IsTrapExit()
-	samePid := e.Sender == e.Receiver.pid
+	samePid := e.Receiver != nil && e.Receiver.pid == e.PID
+
 	// Silently drop the exit signal if:
 	// - it is a link signal and the receiver is not linked to the sender
 	// - it is a normal exit and the process is not trapping exits and the sender
 	//   is not the same as the receiver
 	if (linked && !linkFound) ||
 		(e.Reason == KILL && !trappingExits && !samePid) {
+		slog.Debug("process.handleExitSignal: silently dropping exit signal", slog.Any("pid", p.pid), slog.Any("exit", e))
 		return
 	}
 
@@ -239,6 +262,7 @@ func (p *Process) handleExitSignal(f signalFlags, e exitSig) {
 	// - the process is not trapping exits, the exit reason is something other than `normal`
 	// - the exit reason is `normal` and the sender is the same as the receiver and the link flag is not set
 	if !linked && e.Reason == KILL {
+		slog.Debug("process.handleExitSignal: terminating process with KILL reason", slog.Any("pid", p.pid), slog.Any("exit", e))
 		p.stateLock.RUnlock()
 		p.stateLock.Lock()
 		p.state = EXITING_STATE
@@ -247,6 +271,7 @@ func (p *Process) handleExitSignal(f signalFlags, e exitSig) {
 		p.stateLock.RLock()
 		return
 	} else if !trappingExits && e.Reason != NORMAL {
+		slog.Debug("process.handleExitSignal: terminating process with exit reason", slog.Any("pid", p.pid), slog.Any("exit", e))
 		p.stateLock.RUnlock()
 		p.stateLock.Lock()
 		p.state = EXITING_STATE
@@ -255,6 +280,7 @@ func (p *Process) handleExitSignal(f signalFlags, e exitSig) {
 		p.stateLock.RLock()
 		return
 	} else if e.Reason == NORMAL && samePid && !linked {
+		slog.Debug("process.handleExitSignal: terminating process with normal exit reason", slog.Any("pid", p.pid), slog.Any("exit", e))
 		p.stateLock.RUnlock()
 		p.stateLock.Lock()
 		p.state = EXITING_STATE
@@ -271,24 +297,14 @@ func (p *Process) handleExitSignal(f signalFlags, e exitSig) {
 	if trappingExits ||
 		(!linked && e.Reason != KILL) ||
 		(linked && linkFound) {
+		slog.Debug("process.handleExitSignal: pushing exit message to mailbox", slog.Any("pid", p.pid), slog.Any("exit", e))
 		p.pushMessage(e.ToExit())
 	}
 }
 
 // this must always be called while the stateLock is at least read-locked and the mailboxLock is write-locked
-func (p *Process) monitor(re *Ref) {
-	p.monitors.push(re)
-}
-
-// this must always be called while the stateLock is at least read-locked and the mailboxLock is write-locked
-func (p *Process) deMonitor(re *Ref) {
-	removed := p.monitors.remove(re)
-	p.dirty = p.dirty || removed
-}
-
-// this must always be called while the stateLock is at least read-locked and the mailboxLock is write-locked
 func (p *Process) down(down DownMsg) {
-	if p.monitors.contains(down.Ref) {
+	if p.monitors.contains(down.From, down.Ref) {
 		p.pushMessage(down)
 	}
 }
@@ -321,38 +337,43 @@ func (p *Process) aliveReply(r ReplyMsg[error]) {
 
 // handleSignal is always called from a functions that has the mailboxLock write-locked as well as the stateLock read-locked.
 func (p *Process) handleSignal(s signal[Message]) {
-	p.stateLock.RLock()
-	defer p.stateLock.RUnlock()
-	defer p.maybeGarbageCollect()
+	slog.Debug("process.handleSignal", slog.Any("pid", p.pid), slog.Any("signal", s))
 	switch p.state {
 	case STARTED_STATE:
 		switch s._type {
 		case LINK_SIGNAL:
-			re := debug.AssertTypeNotZero[*Ref](s.message, "process.handleSignal: expected *Ref for LINK_SIGNAL, got %T", s.message)
-			p.link(re)
+			if s.flags.IsRequest() {
+				re := debug.AssertType[RequestMsg[*Ref]](s.message, "process.handleSignal: expected *Ref for LINK_SIGNAL, got %T", s.message)
+				p.linkRequest(re)
+			} else if s.flags.IsReply() {
+				re := debug.AssertType[ReplyMsg[*Ref]](s.message, "process.handleSignal: expected *Ref for LINK_REPLY_SIGNAL, got %T", s.message)
+				p.linkReply(re)
+			} else {
+				debug.Throw("process.handleSignal: unexpected flags for LINK_SIGNAL: %s", s.flags)
+			}
 		case UNLINK_SIGNAL:
-			re := debug.AssertTypeNotZero[*Ref](s.message, "process.handleSignal: expected *Ref for UNLINK_SIGNAL, got %T", s.message)
+			re := debug.AssertType[RequestMsg[*Ref]](s.message, "process.handleSignal: expected *Ref for UNLINK_SIGNAL, got %T", s.message)
 			p.unlink(re)
 		case EXIT_SIGNAL:
-			e := debug.AssertTypeNotZero[exitSig](s.message, "process.handleSignal: expected exit for EXIT_SIGNAL, got %T", s.message)
+			e := debug.AssertType[exitSig](s.message, "process.handleSignal: expected exit for EXIT_SIGNAL, got %T", s.message)
 			p.handleExitSignal(s.flags, e)
 		case MONITOR_SIGNAL:
-			re := debug.AssertTypeNotZero[*Ref](s.message, "process.handleSignal: expected *Ref for MONITOR_SIGNAL, got %T", s.message)
+			re := debug.AssertType[RequestMsg[*Ref]](s.message, "process.handleSignal: expected *Ref for MONITOR_SIGNAL, got %T", s.message)
 			p.monitor(re)
 		case DE_MONITOR_SIGNAL:
-			re := debug.AssertTypeNotZero[*Ref](s.message, "process.handleSignal: expected *Ref for DE_MONITOR_SIGNAL, got %T", s.message)
+			re := debug.AssertType[RequestMsg[*Ref]](s.message, "process.handleSignal: expected *Ref for DE_MONITOR_SIGNAL, got %T", s.message)
 			p.deMonitor(re)
 		case DOWN_SIGNAL:
-			down := debug.AssertTypeNotZero[DownMsg](s.message, "process.handleSignal: expected exit for DOWN_SIGNAL, got %T", s.message)
+			down := debug.AssertType[DownMsg](s.message, "process.handleSignal: expected exit for DOWN_SIGNAL, got %T", s.message)
 			p.down(down)
 		case GROUP_LEADER_SIGNAL:
-			re := debug.AssertTypeNotZero[*Ref](s.message, "process.handleSignal: expected *Ref for GROUP_LEADER_SIGNAL, got %T", s.message)
+			re := debug.AssertType[*Ref](s.message, "process.handleSignal: expected *Ref for GROUP_LEADER_SIGNAL, got %T", s.message)
 			p.setGroupLeader(re)
 		case ALIVE_REQUEST_SIGNAL:
-			req := debug.AssertTypeNotZero[RequestMsg[Message]](s.message, "process.handleSignal: expected message for ALIVE_REQUEST_SIGNAL, got %T", s.message)
+			req := debug.AssertType[RequestMsg[Message]](s.message, "process.handleSignal: expected message for ALIVE_REQUEST_SIGNAL, got %T", s.message)
 			p.aliveRequest(req)
 		case ALIVE_REPLY_SIGNAL:
-			err := debug.AssertTypeNotZero[ReplyMsg[error]](s.message, "process.handleSignal: expected Reply[error] for ALIVE_REPLY_SIGNAL, got %T", s.message)
+			err := debug.AssertType[ReplyMsg[error]](s.message, "process.handleSignal: expected Reply[error] for ALIVE_REPLY_SIGNAL, got %T", s.message)
 			p.aliveReply(err)
 		case MESSAGE_SIGNAL:
 			p.pushMessage(s.message)
@@ -371,9 +392,12 @@ type refMap struct {
 	m     map[PID][]*Ref
 }
 
-func (rl *refMap) push(re *Ref) {
-	debug.Assert(re.IsValid(), "refList.push: cannot push invalid reference")
-	v, ok := rl.m[re.pid]
+func newRefMap() refMap { return refMap{m: make(map[PID][]*Ref, 16)} }
+
+func (rl *refMap) push(id PID, re *Ref) {
+	debug.RefuteFunc(id.IsZero, "refList.push: cannot push zero PID")
+	debug.AssertFunc(re.IsValid, "refList.push: cannot push invalid reference")
+	v, ok := rl.m[id]
 	if !ok {
 		v = make([]*Ref, 0, 4)
 	}
@@ -382,8 +406,9 @@ func (rl *refMap) push(re *Ref) {
 	rl.count++
 }
 
-func (rl *refMap) remove(re *Ref) bool {
-	debug.Assert(re.IsValid(), "refList.remove: cannot remove invalid reference")
+func (rl *refMap) remove(id PID, re *Ref) bool {
+	debug.RefuteFunc(id.IsZero, "refList.remove: cannot remove zero PID")
+	debug.AssertFunc(re.IsValid, "refList.remove: cannot remove invalid reference")
 	vs, ok := rl.m[re.pid]
 	if !ok {
 		return false
@@ -401,9 +426,10 @@ func (rl *refMap) remove(re *Ref) bool {
 	return false
 }
 
-func (rl *refMap) contains(re *Ref) bool {
-	debug.Assert(re.IsValid(), "refList.contains: cannot check invalid reference")
-	vs, ok := rl.m[re.pid]
+func (rl *refMap) contains(id PID, re *Ref) bool {
+	debug.RefuteFunc(id.IsZero, "refList.contains: cannot check zero PID")
+	debug.AssertFunc(re.IsValid, "refList.contains: cannot check invalid reference")
+	vs, ok := rl.m[id]
 	if !ok {
 		return false
 	}
@@ -419,19 +445,18 @@ func (rl *refMap) garbageCollect() {
 	if rl.count == 0 {
 		return
 	}
-	m := rl.m
 	if rl.count*4 > len(rl.m) {
-		m = make(map[PID][]*Ref, min(16, len(rl.m)*2))
-	}
-	for pid, refs := range rl.m {
-		m[pid] = make([]*Ref, 0, len(refs))
-		for _, ref := range refs {
-			if ref != nil && ref.IsValid() {
-				m[pid] = append(m[pid], ref)
+		m := make(map[PID][]*Ref, min(16, len(rl.m)*2))
+		for pid, refs := range rl.m {
+			m[pid] = make([]*Ref, 0, len(refs))
+			for _, ref := range refs {
+				if ref != nil && ref.IsValid() {
+					m[pid] = append(m[pid], ref)
+				}
 			}
 		}
+		rl.m = m
 	}
-	rl.m = m
 }
 
 func (rl *refMap) refs() func(func(*Ref) bool) {

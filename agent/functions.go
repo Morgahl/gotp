@@ -13,8 +13,8 @@ func Start[T any](initFn InitFn[T], opts ...process.SpawnOpt) (*server.Server[an
 	return s.(*server.Server[any, any, T, any, any]), nil
 }
 
-func StartLink[T any](initFn InitFn[T], opts ...process.SpawnOpt) (*server.Server[any, any, T, any, any], error) {
-	s, err := New(initFn).StartLink(opts...)
+func StartLink[T any](initFn InitFn[T], linked *process.Process, opts ...process.SpawnOpt) (*server.Server[any, any, T, any, any], error) {
+	s, err := New(initFn).StartLink(linked, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -26,11 +26,11 @@ func Cast[T any](to process.PID, msg UpdateFn[T]) {
 }
 
 func Get[T any](to, from process.PID, msg GetFn[T]) (T, bool) {
-	return server.Call[process.Message, T](to, from, msg)
+	return server.Call[process.Message, T](to, from, msg, 0)
 }
 
 func GetAndUpdate[T any](to, from process.PID, msg GetAndUpdateFn[T]) (T, bool) {
-	return server.Call[process.Message, T](to, from, msg)
+	return server.Call[process.Message, T](to, from, msg, 0)
 }
 
 func Update[T any](to process.PID, msg UpdateFn[T]) {

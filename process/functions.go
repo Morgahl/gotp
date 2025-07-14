@@ -1,6 +1,8 @@
 package process
 
 import (
+	"context"
+	"log/slog"
 	"time"
 
 	"github.com/Morgahl/gotp"
@@ -14,15 +16,19 @@ func Send[S Sendable](s S, m Message) {
 	defer func() { recover() }()
 	switch v := any(s).(type) {
 	case *Process:
+		slog.Debug("process.Send", slog.Any("pid", v.pid), slog.Any("message", m))
 		v.send(messageSignal(no_FLAGS, m))
 
 	case *Ref:
+		slog.Debug("process.Send", slog.Any("ref", v), slog.Any("message", m))
 		v.send(messageSignal(no_FLAGS, m))
 
 	case PID:
+		slog.Debug("process.Send", slog.Any("pid", v), slog.Any("message", m))
 		sendPID(v, m)
 
 	case gotp.Atom:
+		slog.Debug("process.Send", slog.Any("atom", v), slog.Any("message", m))
 		sendNamed(v, m)
 	}
 }
@@ -31,89 +37,80 @@ func SendAfter[S Sendable](s S, m Message, delay time.Duration) *time.Timer {
 	return time.AfterFunc(delay, func() { Send(s, m) })
 }
 
-func ReceiveWithTimeout[M Message](p *Process, timeout time.Duration) (M, bool) {
-	p.stateLock.RLock()
-	defer p.stateLock.RUnlock()
-	defer p.maybeGarbageCollect()
+func ReceiveWithTimeout[M Message](p *Process, timeout time.Duration) (M, bool, error) {
 	var after <-chan time.Time
 	if timeout > 0 {
 		after = time.After(timeout)
 	}
-
-	p.mailboxMu.Lock()
-	defer p.mailboxMu.Unlock()
-	var readOffset int
-	for {
-		switch p.state {
-		case STARTING_STATE, STARTED_STATE:
-			for _, m := range p.mailbox[readOffset:] {
-				if m == nil {
-					readOffset++
-					continue
-				}
-				if mt, ok := m.(M); ok {
-					p.mailbox[readOffset] = nil
-					p.messageSkips = append(p.messageSkips, readOffset)
-					return mt, true
-				}
-				readOffset++
-			}
-
-			select {
-			case s := <-p.signalChan:
-				p.handleSignal(s)
-				continue
-			case <-after:
-				var zero M
-				return zero, false
-			}
-
-		case EXITING_STATE, EXITED_STATE:
-			var zero M
-			return zero, false
-		}
-	}
+	return receive[M](p, after)
 }
 
-func Receive[M Message](p *Process) (M, bool) {
+func ReceiveContext[M Message](p *Process, ctx context.Context) (M, bool, error) {
+	m, ok, err := receive[M](p, ctx.Done())
+	if err == nil {
+		err = context.Cause(ctx)
+	}
+	return m, ok, err
+}
+
+func receive[M Message, D any](p *Process, done <-chan D) (_ M, _ bool, reason error) {
+	var readOffset int
+	var messageSkipOffset int
 	p.stateLock.RLock()
 	defer p.stateLock.RUnlock()
-	defer p.maybeGarbageCollect()
-
 	p.mailboxMu.Lock()
 	defer p.mailboxMu.Unlock()
-
-	var readOffset int
-	for {
+	defer p.maybeGarbageCollect()
+	yeildAfter := len(p.mailbox)
+PROCESS_SIGNALS:
+	for i := 0; i < yeildAfter; i++ {
 		switch p.state {
 		case STARTING_STATE, STARTED_STATE:
-
-			for _, m := range p.mailbox[readOffset:] {
-				if m == nil {
-					readOffset++
-					continue
-				}
-				if mt, ok := m.(M); ok {
-					p.mailbox[readOffset] = nil
-					p.messageSkips = append(p.messageSkips, readOffset)
-					return mt, true
-				}
-				readOffset++
-			}
-
 			select {
 			case s := <-p.signalChan:
 				p.handleSignal(s)
-				continue
-			default:
+			case <-done:
 				var zero M
-				return zero, false
+				return zero, false, nil
+			default:
+				break PROCESS_SIGNALS
 			}
 
 		case EXITING_STATE, EXITED_STATE:
 			var zero M
-			return zero, false
+			return zero, false, p.exitReason
 		}
+	}
+
+PROCESS_MESSAGES:
+	switch p.state {
+	case STARTING_STATE, STARTED_STATE:
+		for n, m := range p.mailbox[readOffset:] {
+			if messageSkipOffset < len(p.messageSkips) && p.messageSkips[messageSkipOffset] == readOffset+n {
+				messageSkipOffset++
+				readOffset++
+				continue
+			}
+			if mt, ok := m.(M); ok {
+				p.mailbox[readOffset] = nil
+				p.messageSkips = append(p.messageSkips, readOffset)
+				return mt, true, nil
+			}
+			readOffset++
+		}
+
+	case EXITING_STATE, EXITED_STATE:
+		var zero M
+		return zero, false, p.exitReason
+	}
+
+	select {
+	case s := <-p.signalChan:
+		p.handleSignal(s)
+		goto PROCESS_MESSAGES
+	case <-done:
+		var zero M
+		return zero, false, nil
 	}
 }
 

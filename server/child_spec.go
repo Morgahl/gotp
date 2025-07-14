@@ -1,4 +1,4 @@
-package supervisor
+package server
 
 import (
 	"fmt"
@@ -11,6 +11,7 @@ import (
 
 type Supervisable interface {
 	ChildSpec() ChildSpec
+	StartLink(*process.Process, ...process.SpawnOpt) (Supervised, error)
 }
 
 type Supervised interface {

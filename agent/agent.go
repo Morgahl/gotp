@@ -7,7 +7,6 @@ import (
 	"github.com/Morgahl/gotp"
 	"github.com/Morgahl/gotp/process"
 	"github.com/Morgahl/gotp/server"
-	"github.com/Morgahl/gotp/supervisor"
 )
 
 var _ server.Serverable[any, process.Message, int, process.Message, process.Message] = &Agent[int]{}
@@ -38,15 +37,15 @@ func (a *Agent[T]) Start(opts ...process.SpawnOpt) (process.Started, error) {
 	return a.server.Start(opts...)
 }
 
-func (a *Agent[T]) StartLink(opts ...process.SpawnOpt) (supervisor.Supervised, error) {
-	return a.server.StartLink(opts...)
+func (a *Agent[T]) StartLink(linked *process.Process, opts ...process.SpawnOpt) (server.Supervised, error) {
+	return a.server.StartLink(linked, opts...)
 }
 
-func (a *Agent[T]) ChildSpec() supervisor.ChildSpec {
-	return supervisor.ChildSpec{
-		Restart:     supervisor.PERMANENT,
+func (a *Agent[T]) ChildSpec() server.ChildSpec {
+	return server.ChildSpec{
+		Restart:     server.PERMANENT,
 		Shutdown:    gotp.DEFAULT_SHUTDOWN,
-		Type:        supervisor.WORKER,
+		Type:        server.WORKER,
 		Significant: true,
 	}
 }

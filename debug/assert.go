@@ -27,7 +27,7 @@ func RefuteFunc(fn func() bool, format string, argv ...any) {
 // this is it's own function so that all call depaths are the same and the stack trace is consistent when an assertion
 // fails
 func assert(condition bool, format string, argv ...any) {
-	if !condition {
+	if condition {
 		return
 	}
 	throw(2, format, argv...)

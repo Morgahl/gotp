@@ -2,12 +2,12 @@ package server
 
 import (
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/Morgahl/gotp"
 	"github.com/Morgahl/gotp/debug"
 	"github.com/Morgahl/gotp/process"
-	"github.com/Morgahl/gotp/supervisor"
 )
 
 // TODO: these shoudl conform once we have a supervisr for them to conform to
@@ -42,8 +42,8 @@ func StartLink[
 	R process.Message,
 	Cs process.Message,
 	Ct process.Message,
-](server Serverable[I, Cl, R, Cs, Ct], initArg I, opts ...process.SpawnOpt) (supervisor.Supervised, error) {
-	return New(server, initArg).StartLink(opts...)
+](server Serverable[I, Cl, R, Cs, Ct], initArg I, linked *process.Process, opts ...process.SpawnOpt) (Supervised, error) {
+	return New(server, initArg).StartLink(linked, opts...)
 }
 
 func New[
@@ -60,7 +60,7 @@ func (s Server[I, Cl, R, Cs, Ct]) String() string {
 	return fmt.Sprintf("Server[%T](server: %s, process: %s, initArg: %v)", s.server, s.server, s.process.PID(), s.initArg)
 }
 
-func (s *Server[I, Cl, R, Cs, Ct]) ChildSpec() supervisor.ChildSpec {
+func (s *Server[I, Cl, R, Cs, Ct]) ChildSpec() ChildSpec {
 	return s.server.ChildSpec()
 }
 
@@ -69,8 +69,8 @@ func (s *Server[I, Cl, R, Cs, Ct]) Start(opts ...process.SpawnOpt) (process.Star
 	return s, err
 }
 
-func (s *Server[I, Cl, R, Cs, Ct]) StartLink(opts ...process.SpawnOpt) (supervisor.Supervised, error) {
-	err := <-s.setupLinkedProc(opts...)
+func (s *Server[I, Cl, R, Cs, Ct]) StartLink(linked *process.Process, opts ...process.SpawnOpt) (Supervised, error) {
+	err := <-s.setupLinkedProc(linked, opts...)
 	return s, err
 }
 
@@ -115,6 +115,10 @@ func (s *Server[I, Cl, R, Cs, Ct]) SendAfter(msg process.Message, after time.Dur
 	return process.SendAfter(s.process, msg, after)
 }
 
+func (s *Server[I, Cl, R, Cs, Ct]) Exit(reason error) {
+	s.process.Exit(reason)
+}
+
 func (s *Server[I, Cl, R, Cs, Ct]) Process() *process.Process {
 	return s.process
 }
@@ -126,9 +130,9 @@ func (s *Server[I, Cl, R, Cs, Ct]) setupProc(opts ...process.SpawnOpt) <-chan er
 	return sig
 }
 
-func (s *Server[I, Cl, R, Cs, Ct]) setupLinkedProc(opts ...process.SpawnOpt) <-chan error {
+func (s *Server[I, Cl, R, Cs, Ct]) setupLinkedProc(linked *process.Process, opts ...process.SpawnOpt) <-chan error {
 	sig := make(chan error)
-	s.process = process.SpawnLink(s.loop(sig), s.process, opts...)
+	s.process = process.SpawnLink(s.loop(sig), linked, opts...)
 	s.process.Start()
 	return sig
 }
@@ -154,6 +158,7 @@ func (s *Server[I, Cl, R, Cs, Ct]) loop(sig chan error) process.RunFn {
 		for {
 			if reason != nil {
 				// stop processing messages
+				slog.Debug("Server.loop: exiting due to reason", slog.Any("pid", p.PID()), slog.Any("reason", reason))
 				return
 			} else if cont.atom == CONTINUE {
 				// We have a continuation, we should process it first and then continue the loop.
@@ -161,21 +166,26 @@ func (s *Server[I, Cl, R, Cs, Ct]) loop(sig chan error) process.RunFn {
 				continue
 			}
 
-			msg, ok := process.ReceiveWithTimeout[process.Message](p, 0)
-			if !ok {
-				// The Process message queue has been closed?!?!
+			msg, ok, err := process.ReceiveWithTimeout[process.Message](p, 0)
+			if err != nil {
+				return err
+			} else if !ok {
 				debug.Throw("Server.loop: Process message queue closed unexpectedly for PID %s", p.PID())
 			}
+			slog.Debug("Server.loop: received message", slog.Any("pid", p.PID()), slog.Any("message", msg))
 			switch msg := msg.(type) {
 			case stop:
+				slog.Debug("Server.loop: received stop message", slog.Any("pid", p.PID()), slog.Any("reason", msg.reason))
 				// We have a stop message, we should terminate the server.
 				return msg.reason
 
 			case process.ExitMsg:
+				slog.Debug("Server.loop: received exit message", slog.Any("pid", p.PID()), slog.Any("reason", msg.Reason))
 				// We have an Exit message
 				cont, reason = s.server.HandleInfo(msg)
 
 			case call[Cl, R]:
+				slog.Debug("Server.loop: received call message", slog.Any("pid", p.PID()), slog.Any("message", msg))
 				// We have a synchronous call and a chan to close after conditionally sending a
 				// response back to the caller.
 				resp, cont, reason = s.server.HandleCall(msg.req, msg.from)
@@ -194,10 +204,12 @@ func (s *Server[I, Cl, R, Cs, Ct]) loop(sig chan error) process.RunFn {
 				}
 
 			case cast[Cs]:
+				slog.Debug("Server.loop: received cast message", slog.Any("pid", p.PID()), slog.Any("message", msg))
 				// We have an asynchronous call
 				cont, reason = s.server.HandleCast(msg.req)
 
 			default:
+				slog.Debug("Server.loop: received unknown message", slog.Any("pid", p.PID()), slog.Any("message", msg))
 				// We have an Info or some other message that we don't know how to handle.
 				cont, reason = s.server.HandleInfo(msg)
 			}

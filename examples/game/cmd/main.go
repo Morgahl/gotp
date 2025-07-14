@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/Morgahl/gotp/internal/grts"
 	"github.com/Morgahl/gotp/logger"
-	"github.com/Morgahl/gotp/old/internal/grts"
 
-	"github.com/Morgahl/gotp/old/examples/game"
+	"github.com/Morgahl/gotp/examples/game"
 )
 
 func init() {

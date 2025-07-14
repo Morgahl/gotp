@@ -7,7 +7,6 @@ import (
 
 	"github.com/Morgahl/gotp"
 	"github.com/Morgahl/gotp/process"
-	"github.com/Morgahl/gotp/supervisor"
 )
 
 type Serverable[
@@ -17,7 +16,7 @@ type Serverable[
 	Cs process.Message,
 	Ct process.Message,
 ] interface {
-	ChildSpec() supervisor.ChildSpec
+	ChildSpec() ChildSpec
 	Init(I) (Continue[Ct], error)
 	HandleCall(Cl, process.PID) (Response[R], Continue[Ct], error)
 	HandleCast(Cs) (Continue[Ct], error)
@@ -42,12 +41,12 @@ const (
 // - Ct which is the type of the continue message
 type OptionalCallbacks[I any, Ct process.Message] struct{}
 
-func (OptionalCallbacks[I, Ct]) ChildSpec() supervisor.ChildSpec {
+func (OptionalCallbacks[I, Ct]) ChildSpec() ChildSpec {
 	slog.Warn("ChildSpec not implemented, defaulting to permanent worker")
-	return supervisor.ChildSpec{
-		Restart:  supervisor.PERMANENT,
+	return ChildSpec{
+		Restart:  PERMANENT,
 		Shutdown: gotp.DEFAULT_SHUTDOWN,
-		Type:     supervisor.WORKER,
+		Type:     WORKER,
 	}
 }
 

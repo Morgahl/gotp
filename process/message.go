@@ -41,7 +41,7 @@ func ReplyTo[F From, M Message](request RequestMsg[Message], from F, msg M) Repl
 }
 
 type ExitMsg struct {
-	Sender PID
+	PID    PID
 	Reason error
 }
 
@@ -49,12 +49,4 @@ type DownMsg struct {
 	From   PID
 	Ref    *Ref
 	Reason error
-}
-
-type errorAsStringer struct {
-	error
-}
-
-func (r errorAsStringer) String() string {
-	return r.Error()
 }

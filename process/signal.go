@@ -1,9 +1,21 @@
 package process
 
+import (
+	"log/slog"
+)
+
 type signal[M Message] struct {
 	_type   signalType
 	flags   signalFlags
 	message M
+}
+
+func (s signal[M]) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.Any("type", s._type.Atom()),
+		slog.String("flags", s.flags.String()),
+		slog.Any("message", s.message),
+	)
 }
 
 func messageSignal[M Message](flags signalFlags, message M) signal[M] {
@@ -14,15 +26,23 @@ func messageSignal[M Message](flags signalFlags, message M) signal[M] {
 	}
 }
 
-func linkSignal(link *Ref) signal[Message] {
+func linkRequestSignal(link RequestMsg[*Ref]) signal[Message] {
 	return signal[Message]{
 		_type:   LINK_SIGNAL,
-		flags:   link_FLAG | cast_FLAG,
+		flags:   link_FLAG | request_FLAG,
 		message: link,
 	}
 }
 
-func unlinkSignal(unlink *Ref) signal[Message] {
+func linkReplySignal(link ReplyMsg[*Ref]) signal[Message] {
+	return signal[Message]{
+		_type:   LINK_SIGNAL,
+		flags:   link_FLAG | reply_FLAG,
+		message: link,
+	}
+}
+
+func unlinkSignal(unlink RequestMsg[*Ref]) signal[Message] {
 	return signal[Message]{
 		_type:   UNLINK_SIGNAL,
 		flags:   link_FLAG | cast_FLAG,
@@ -31,14 +51,14 @@ func unlinkSignal(unlink *Ref) signal[Message] {
 }
 
 type exitSig struct {
-	Sender   PID
+	PID      PID
 	Receiver *Ref
 	Reason   error
 }
 
 func (e exitSig) ToExit() ExitMsg {
 	return ExitMsg{
-		Sender: e.Sender,
+		PID:    e.PID,
 		Reason: e.Reason,
 	}
 }
@@ -48,14 +68,14 @@ func exitSignal(flags signalFlags, sender PID, receiver *Ref, reason error) sign
 		_type: EXIT_SIGNAL,
 		flags: flags,
 		message: exitSig{
-			Sender:   sender,
+			PID:      sender,
 			Receiver: receiver,
 			Reason:   reason,
 		},
 	}
 }
 
-func monitorSignal(monitor *Ref) signal[Message] {
+func monitorSignal(monitor RequestMsg[*Ref]) signal[Message] {
 	return signal[Message]{
 		_type:   MONITOR_SIGNAL,
 		flags:   monitor_FLAG | cast_FLAG,
@@ -63,7 +83,7 @@ func monitorSignal(monitor *Ref) signal[Message] {
 	}
 }
 
-func deMonitorSignal[M Message](deMonitor *Ref) signal[Message] {
+func deMonitorSignal[M Message](deMonitor RequestMsg[*Ref]) signal[Message] {
 	return signal[Message]{
 		_type:   DE_MONITOR_SIGNAL,
 		flags:   monitor_FLAG | cast_FLAG,

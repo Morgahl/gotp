@@ -4,7 +4,7 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/lmittmann/tint"
+	"github.com/Morgahl/tint"
 )
 
 const (

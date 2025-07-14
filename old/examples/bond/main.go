@@ -21,10 +21,11 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	count := rand.Intn(1_000_000) + 500_000
+	count := 10_000_000
 	slog.Info("Running missions with agent", "pid", agent.pid, "count", count)
+	runStart := time.Now()
 	runMissions(agent, count)
-	slog.Info("Completed missions", "count", count)
+	slog.Info("Completed missions", "count", count, "took", time.Since(runStart))
 	value := agent.EvaluatePerformance()
 	took := time.Since(start)
 	slog.Info("Performance Evaluation", "result", value, "took", took, "avg", took/time.Duration(count))

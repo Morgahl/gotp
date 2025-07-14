@@ -35,12 +35,10 @@ func Root(vals ...any) *Context {
 	go func(ctx context.Context, cancel context.CancelCauseFunc) {
 		select {
 		case <-ctx.Done():
-			slog.DebugContext(ctx, "root context done", slog.Any("reason", context.Cause(ctx)))
-			signal.Stop(sig)
+			slog.DebugContext(ctx, "root context done", slog.String("reason", context.Cause(ctx).Error()))
 			return
 		case s := <-sig:
 			slog.InfoContext(ctx, "signal received, shutting down", slog.Any("signal", s))
-			signal.Stop(sig)
 			cancel(newShutdown(s))
 		}
 	}(ctx, cancel)

@@ -4,13 +4,13 @@ import (
 	"fmt"
 
 	"github.com/Morgahl/gotp"
-	"github.com/Morgahl/gotp/supervisor"
+	"github.com/Morgahl/gotp/server"
 )
 
 type Application interface {
 	Name() gotp.Atom
 	Version() Version
-	Start(StartType) (supervisor.Supervisable, error)
+	Start(StartType) (server.Supervisable, error)
 }
 
 type PrepareStop interface {

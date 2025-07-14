@@ -1,42 +1,39 @@
 package process
 
-import "time"
+import (
+	"github.com/Morgahl/gotp/debug"
+)
 
+// TODO: rethink the *Process passing here we may want this to just be a builder struct instead for safety
 type SpawnOpt func(*Process)
 
-func Link(link *Ref) SpawnOpt {
-	return func(p *Process) {
-		p.links.push(link)
-		link.send(linkSignal(p.Ref()))
-	}
-}
-
 func Linked(pp *Process) SpawnOpt {
-	return Link(pp.Ref())
+	ref := pp.Ref()
+	s := linkRequestSignal(RequestMsg[*Ref]{
+		From:    pp.PID(),
+		Ref:     ref,
+		Message: ref,
+	})
+	// TODO: A send like this might deadlock during building as the process is not receiving yet
+	return func(p *Process) { p.send(s) }
 }
 
-func Monitor(monitor *Ref) SpawnOpt {
-	return func(p *Process) {
-		monitor.send(monitorSignal(p.Ref()))
-	}
-}
-
-func Monitored(pp *Process) SpawnOpt {
-	return Monitor(pp.Ref())
+// TODO: rethink the *Process passing here we may want this to just be a builder struct instead for safety
+func Monitored(p *Process) SpawnOpt {
+	ref := p.Ref()
+	s := monitorSignal(RequestMsg[*Ref]{
+		From:    p.PID(),
+		Ref:     ref,
+		Message: ref,
+	})
+	// TODO: A send like this might deadlock during building as the process is not receiving yet
+	return func(p *Process) { p.send(s) }
 }
 
 func GroupLeader(leader *Ref) SpawnOpt {
+	debug.Assert(leader.IsValid(), "group leader must be a valid reference")
 	return func(p *Process) {
 		p.groupLeader = leader
-	}
-}
-
-func GCInterval(interval time.Duration) SpawnOpt {
-	if interval < 0 {
-		interval = time.Second
-	}
-	return func(p *Process) {
-		p.gcInterval = interval
 	}
 }
 
@@ -61,22 +58,22 @@ func ChannelSize(size int) SpawnOpt {
 		size = CHANNEL_SIZE
 	}
 	return func(p *Process) {
-		if p.signalChan == nil {
+		if cap(p.signalChan) < size {
+			oldChan := p.signalChan
 			p.signalChan = make(chan signal[Message], size)
-		} else {
-			capacity := cap(p.signalChan)
-			if capacity < size {
-				p.signalChan = make(chan signal[Message], size)
+			if len(oldChan) > 0 {
+				close(oldChan)
+				for msg := range oldChan {
+					p.signalChan <- msg
+				}
 			}
 		}
 	}
 }
 
-func InheritFrom(pp *Process) SpawnOpt {
-	flags := pp.flags
-	groupLeader := pp.groupLeader
+func InheritFrom(p *Process) SpawnOpt {
+	groupLeader := p.groupLeader
 	return func(p *Process) {
-		p.flags = flags
 		p.groupLeader = groupLeader
 	}
 }
