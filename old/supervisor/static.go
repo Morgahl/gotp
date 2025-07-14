@@ -8,6 +8,7 @@ import (
 
 	gotp "github.com/Morgahl/gotp/old"
 	"github.com/Morgahl/gotp/old/server"
+	"github.com/Morgahl/gotp/process"
 )
 
 var _ gotp.Supervisable = &StaticSupervisor{}
@@ -162,9 +163,11 @@ func (s *StaticSupervisor) HandleInfo(info gotp.Msg) (cont server.Continue[gotp.
 		child, ok := s.findChildByPID(info.ID())
 		if !ok {
 			return server.NoCont[gotp.Msg](), nil
-		} else if !s.deregisterChild(info.ID()) {
+		}
+		shouldRestart := s.shouldRestart(info.ID(), info.Reason())
+		if !s.deregisterChild(info.ID()) {
 			return server.NoCont[gotp.Msg](), nil
-		} else if !s.shouldRestart(info.ID()) {
+		} else if !shouldRestart {
 			return server.NoCont[gotp.Msg](), nil
 		}
 		r := s.StartChild(child.supervised)
@@ -185,7 +188,6 @@ func (s *StaticSupervisor) HandleInfo(info gotp.Msg) (cont server.Continue[gotp.
 }
 
 func (s *StaticSupervisor) Terminate(reason error) (newReson error) {
-
 	children := make([]child, 0, len(s.children))
 	for _, c := range s.children {
 		children = append(children, c)
@@ -198,7 +200,6 @@ func (s *StaticSupervisor) Terminate(reason error) (newReson error) {
 		return gotp.ComparePID(i.supervised.ID(), j.supervised.ID()) * -1
 	})
 
-	// shutdown:
 	for _, child := range children {
 		pid := child.supervised.ID()
 		timeout := child.supervised.ChildSpec().Shutdown
@@ -265,7 +266,7 @@ func (s *StaticSupervisor) deregisterChild(pid gotp.PID) (deleted bool) {
 	return deleted
 }
 
-func (s *StaticSupervisor) shouldRestart(pid gotp.PID) (restart bool) {
+func (s *StaticSupervisor) shouldRestart(pid gotp.PID, reason error) (restart bool) {
 	if s.server.ID() == pid {
 		return false
 	}
@@ -279,6 +280,10 @@ func (s *StaticSupervisor) shouldRestart(pid gotp.PID) (restart bool) {
 	case gotp.TEMPORARY, gotp.TRANSIENT:
 		return false
 	case gotp.PERMANENT:
+		if reason == process.NORMAL {
+			return false
+		}
+
 		cs.restart.count++
 
 		if cs.restart.count == 1 {

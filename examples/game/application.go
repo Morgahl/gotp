@@ -65,9 +65,9 @@ var namesList = []gotp.Atom{
 	"zara",
 }
 
-var greekNamesList = permuteLists(greekList, namesList)
+var greekGreekList = permuteLists(greekList, greekList)
 
-var namesGreekList = permuteLists(namesList, greekList)
+var greekNamesList = permuteLists(greekList, namesList)
 
 type Game struct{}
 
@@ -81,9 +81,8 @@ func (Game) Version() application.Version {
 
 func (f Game) Start(st application.StartType) (server.Supervisable, error) {
 	if st.IsNormal() {
-		return NewTeam("teams", supervisor.Flags{}, buildTeams(greekList[:1], namesList[:2])...), nil
-		// return NewTeam("teams", supervisor.Flags{}, buildTeams(greekList, namesList)...), nil
-		// return NewTeam("teams", supervisor.Flags{}, buildTeams(greekNamesList, greekNamesList)...), nil
+		// return NewTeam("teams", supervisor.Flags{}, buildTeams("quartermaster", greekList[:10], namesList[:10])...), nil
+		return NewTeam("teams", supervisor.Flags{}, buildTeams("quartermaster", greekGreekList, greekNamesList)...), nil
 	} else if _, ok := st.IsFailover(); ok {
 		return nil, errors.New("failover not supported in Game")
 	} else if _, ok := st.IsTakeover(); ok {
@@ -102,18 +101,19 @@ func permuteLists(left, right []gotp.Atom) []gotp.Atom {
 	return list
 }
 
-func buildTeams(teams, crew []gotp.Atom) []server.Supervisable {
+func buildTeams(workAgent gotp.Atom, teams, crew []gotp.Atom) []server.Supervisable {
 	var supervisors []server.Supervisable
+	supervisors = append(supervisors, WorkAgent(workAgent, 10*uint64(len(teams)*len(crew))))
 	for _, t := range teams {
-		supervisors = append(supervisors, NewTeam(t, supervisor.Flags{}, buildCrew(t, crew)...))
+		supervisors = append(supervisors, NewTeam(t, supervisor.Flags{}, buildCrew(workAgent, t, crew)...))
 	}
 	return supervisors
 }
 
-func buildCrew(team gotp.Atom, crewList []gotp.Atom) []server.Supervisable {
+func buildCrew(workAgent gotp.Atom, team gotp.Atom, crewList []gotp.Atom) []server.Supervisable {
 	var crew []server.Supervisable
 	for _, c := range crewList {
-		crew = append(crew, NewCrew(team+"_"+c))
+		crew = append(crew, NewCrew(team+"_"+c, workAgent))
 	}
 	return crew
 }

@@ -21,18 +21,22 @@ func StartLink[T any](initFn InitFn[T], linked *process.Process, opts ...process
 	return s.(*server.Server[any, any, T, any, any]), nil
 }
 
-func Cast[T any](to process.PID, msg UpdateFn[T]) {
+func Cast[T any, S process.Sendable](to S, msg UpdateFn[T]) {
 	server.Cast[process.Message](to, msg)
 }
 
-func Get[T any](to, from process.PID, msg GetFn[T]) (T, bool) {
+func Get[T any, S process.Sendable](to S, from process.PID, msg GetFn[T]) (T, bool) {
 	return server.Call[process.Message, T](to, from, msg, 0)
 }
 
-func GetAndUpdate[T any](to, from process.PID, msg GetAndUpdateFn[T]) (T, bool) {
+func GetAndUpdate[T any, S process.Sendable](to S, from process.PID, msg GetAndUpdateFn[T]) (T, bool) {
 	return server.Call[process.Message, T](to, from, msg, 0)
 }
 
-func Update[T any](to process.PID, msg UpdateFn[T]) {
+func Update[T any, S process.Sendable](to S, msg UpdateFn[T]) {
 	server.Cast[process.Message](to, msg)
+}
+
+func Stop[S process.Sendable](to S, reason error) {
+	process.Send(to, server.StopMsg(reason))
 }

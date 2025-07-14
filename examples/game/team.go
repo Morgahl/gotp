@@ -2,7 +2,6 @@ package game
 
 import (
 	"context"
-	"log/slog"
 
 	"github.com/Morgahl/gotp"
 	"github.com/Morgahl/gotp/process"
@@ -45,6 +44,6 @@ func (f *Team) ChildSpec() server.ChildSpec {
 }
 
 func (f *Team) Init(opts gotp.Options) (supervisor.Flags, []server.Supervisable, error) {
-	slog.InfoContext(f.server.Context(), "Team.Init", "members", len(f.specs), "opts", opts)
+	// slog.InfoContext(f.server.Context(), "Team.Init", "members", len(f.specs), "opts", opts)
 	return f.flags, f.specs, nil
 }

@@ -59,7 +59,7 @@ func (a AutoShutdown) String() string {
 
 type Flags struct {
 	AutoShutdown
-	MaxRestarts uint
+	MaxRestarts uint64
 	ResetPeriod time.Duration
 	Shutdown    time.Duration
 	Strategy

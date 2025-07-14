@@ -8,27 +8,26 @@ import (
 	"time"
 
 	"github.com/Morgahl/gotp"
-	"github.com/Morgahl/gotp/debug"
 	"github.com/Morgahl/gotp/process"
 	"github.com/Morgahl/gotp/server"
 )
 
 const (
-	// MIN_DURATION = 500 * time.Microsecond
-	// MID_DURATION = 5 * time.Millisecond
-	// MAX_DURATION = 500 * time.Millisecond
+	MIN_DURATION      = 2 * time.Second
+	MID_LOW_DURATION  = 3 * time.Second
+	MID_HIGH_DURATION = 5 * time.Second
+	MAX_DURATION      = 8 * time.Second
 
-	MIN_DURATION = 2 * time.Second
-	MID_DURATION = 3 * time.Second
-	MAX_DURATION = 5 * time.Second
+	atom_GET_WORK    gotp.Atom = "get_work"
+	atom_SUBMIT_WORK gotp.Atom = "submit_work"
 )
 
 var _ server.Supervisable = &Crew{}
 var _ server.Serverable[gotp.Options, any, any, workItem, any] = &Crew{}
 
 type Crew struct {
-	id gotp.Atom
-	wi workItem
+	id    gotp.Atom
+	agent gotp.Atom
 
 	// Embed the server.DefaultHandlers to provide default implementations
 	// for the server.Serverable interface methods.
@@ -36,8 +35,8 @@ type Crew struct {
 	server *server.Server[gotp.Options, any, any, workItem, any]
 }
 
-func NewCrew(id gotp.Atom) *Crew {
-	c := Crew{id: id}
+func NewCrew(id gotp.Atom, agent gotp.Atom) *Crew {
+	c := Crew{id: id, agent: agent}
 	c.server = server.New(&c, nil)
 	return &c
 }
@@ -65,35 +64,44 @@ func (f *Crew) StartLink(linked *process.Process, opts ...process.SpawnOpt) (s s
 }
 
 func (f *Crew) Init(opts gotp.Options) (c server.Continue[any], err error) {
+	slog.DebugContext(f.Context(), "Crew.Init", "opts", opts)
 	f.server.Process().UpdateFlags(func(flags process.ProcessFlags) process.ProcessFlags {
 		flags |= process.TRAP_EXIT_FLAG
 		return flags
 	})
-	start := time.Now()
-	slog.DebugContext(f.Context(), "Crew.Init", "took", time.Since(start), "opts", opts)
-	f.wi = workItem{
-		id: f.id,
-		// rem: rand.Intn(15) + 16,
-		rem: 1,
+	return server.Cont[any](atom_GET_WORK), nil
+}
+
+func (f *Crew) HandleContinue(msg any) (server.Continue[any], error) {
+	slog.DebugContext(f.Context(), "Crew.HandleContinue", "msg", msg)
+	switch m := msg.(type) {
+	case gotp.Atom:
+		switch m {
+		case atom_GET_WORK:
+			if w, ok := GetWork(f.agent, f.server.PID()); ok {
+				slog.DebugContext(f.Context(), "Crew.HandleContinue got work", "work", w)
+				f.server.Send(server.CastMsg(w))
+				return server.NoCont[any](), nil
+			}
+			slog.DebugContext(f.Context(), "Crew.HandleContinue no more work", "agent", f.agent)
+			return server.Stop[any](process.NORMAL), nil
+		}
 	}
-	f.server.Send(server.CastMsg(f.wi))
+	slog.WarnContext(f.Context(), "Crew.HandleContinue", "unexpected", msg)
 	return server.NoCont[any](), nil
 }
 
 func (f *Crew) HandleCast(work workItem) (server.Continue[any], error) {
-	if work != f.wi {
-		debug.Assert(f.wi.rem == 0, "Crew.HandleCast unexpected work item expected %v, got %v", f.wi, work)
-		slog.InfoContext(f.Context(), "Crew.HandleCast new work item", "work", work)
-		f.wi = work
-	}
-	if f.wi.rem >= 1 {
-		f.wi.rem--
-		slog.DebugContext(f.Context(), "Crew.HandleCast working", "work", f.wi)
+	if work.need != work.done {
+		slog.DebugContext(f.Context(), "Crew.HandleCast working", "work", work)
+		work.done++
 		load := assessWork()
-		f.wi.taken += load
-		f.server.SendAfter(server.CastMsg(f.wi), load)
+		work.taken += load
+		f.server.SendAfter(server.CastMsg(work), load)
 	} else {
-		return server.Stop[any](process.NORMAL), nil
+		slog.DebugContext(f.Context(), "Crew.HandleCast work complete", "work", work)
+		SubmitProcessedWork(f.agent, work)
+		return server.Cont[any](atom_GET_WORK), nil
 	}
 	return server.NoCont[any](), nil
 }
@@ -103,7 +111,7 @@ func (f *Crew) HandleInfo(msg process.Message) (server.Continue[any], error) {
 	switch m := msg.(type) {
 	case process.ExitMsg:
 		if m.PID == f.server.PID() {
-			slog.InfoContext(f.Context(), "Crew.HandleInfo", "exit", m)
+			slog.DebugContext(f.Context(), "Crew.HandleInfo", "exit", m)
 			return server.Stop[any](m.Reason), nil
 		}
 	default:
@@ -114,39 +122,16 @@ func (f *Crew) HandleInfo(msg process.Message) (server.Continue[any], error) {
 }
 
 func (f *Crew) Terminate(reason error) error {
-	if f.wi.rem > 0 {
-		slog.ErrorContext(f.Context(), "Crew.Terminate", "work", f.wi, "reason", reason)
-	} else {
-		slog.InfoContext(f.Context(), "Crew.Terminate", "work", f.wi, "reason", reason)
-	}
 	return reason
-}
-
-type workItem struct {
-	id    gotp.Atom
-	taken time.Duration
-	rem   int
-}
-
-func (w workItem) String() string {
-	return fmt.Sprintf("workItem{id: %s, rem: %d}", w.id, w.rem)
-}
-
-func (w workItem) LogValue() slog.Value {
-	return slog.GroupValue(
-		slog.Any("id", w.id),
-		slog.Duration("taken", w.taken),
-		slog.Int("rem", w.rem),
-	)
 }
 
 func assessWork() time.Duration {
 	switch n := rand.Float64(); {
-	case n <= 0.33:
-		return time.Duration(rand.Int63n(int64(MID_DURATION-MIN_DURATION))) + MIN_DURATION
-	case n <= 0.67:
-		return time.Duration(rand.Int63n(int64(MAX_DURATION-MID_DURATION))) + MID_DURATION
+	case n <= 0.50:
+		return time.Duration(rand.Int63n(int64(MID_LOW_DURATION-MIN_DURATION))) + MIN_DURATION
+	case n <= 0.90:
+		return time.Duration(rand.Int63n(int64(MID_HIGH_DURATION-MID_LOW_DURATION))) + MID_LOW_DURATION
 	default:
-		return time.Duration(rand.Int63n(int64(MAX_DURATION))) + MID_DURATION
+		return time.Duration(rand.Int63n(int64(MAX_DURATION-MID_HIGH_DURATION))) + MID_HIGH_DURATION
 	}
 }

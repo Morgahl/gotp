@@ -59,26 +59,22 @@ func receive[M Message, D any](p *Process, done <-chan D) (_ M, _ bool, reason e
 	p.mailboxMu.Lock()
 	defer p.mailboxMu.Unlock()
 	defer p.maybeGarbageCollect()
-	yeildAfter := len(p.mailbox)
-PROCESS_SIGNALS:
-	for i := 0; i < yeildAfter; i++ {
-		switch p.state {
-		case STARTING_STATE, STARTED_STATE:
-			select {
-			case s, ok := <-p.signalChan:
-				if !ok {
-					goto EXIT
-				}
-				p.handleSignal(s)
-			case <-done:
+	switch p.state {
+	case STARTING_STATE, STARTED_STATE:
+		select {
+		case s, ok := <-p.signalChan:
+			if !ok {
 				goto EXIT
-			default:
-				break PROCESS_SIGNALS
 			}
-
-		case EXITING_STATE, EXITED_STATE:
+			p.handleSignal(s)
+		case <-done:
 			goto EXIT
+		default:
+			break
 		}
+
+	case EXITING_STATE, EXITED_STATE:
+		goto EXIT
 	}
 
 PROCESS_MESSAGES:

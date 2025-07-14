@@ -11,15 +11,19 @@ const (
 )
 
 func Call[Cl process.Message, R process.Message, S process.Sendable](to S, from process.PID, msg Cl, timeout time.Duration) (resp R, replied bool) {
-	if timeout <= 0 {
+	if timeout < 0 {
 		timeout = DEFAULT_TIMEOUT
+	}
+	var after <-chan time.Time
+	if timeout > 0 {
+		after = time.After(timeout)
 	}
 	call := CallMsg[Cl, R](from, msg)
 	process.Send(to, call)
 	select {
 	case resp, ok := <-call.resp:
 		return resp, ok
-	case <-time.After(timeout):
+	case <-after:
 		return resp, false
 	}
 }
@@ -27,7 +31,3 @@ func Call[Cl process.Message, R process.Message, S process.Sendable](to S, from 
 func Cast[Cl process.Message, S process.Sendable](to S, msg Cl) {
 	process.Send(to, CastMsg(msg))
 }
-
-// func Stop[S process.Sendable](to S, reason error) {
-// 	process.Send(to, StopMsg(reason))
-// }

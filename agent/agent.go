@@ -10,7 +10,7 @@ import (
 	"github.com/Morgahl/gotp/server"
 )
 
-var _ server.Serverable[InitFn[int], process.Message, int, process.Message, process.Message] = &Agent[int]{}
+var _ server.Serverable[InitFn[int], process.Message, int, process.Message, any] = &Agent[int]{}
 
 type InitFn[T any] func() *T
 
@@ -22,22 +22,25 @@ type UpdateFn[T any] func(*T)
 
 type Agent[T any] struct {
 	state  *T
-	server *server.Server[InitFn[T], process.Message, T, process.Message, process.Message]
-	server.OptionalCallbacks[any, process.Message]
+	server *server.Server[InitFn[T], process.Message, T, process.Message, any]
+	server.OptionalCallbacks[any, any]
+	spawnOpts []process.SpawnOpt
 }
 
-func New[T any](fn InitFn[T]) *Agent[T] {
-	a := &Agent[T]{}
+func New[T any](fn InitFn[T], opts ...process.SpawnOpt) *Agent[T] {
+	a := &Agent[T]{
+		spawnOpts: opts,
+	}
 	a.server = server.New(a, fn)
 	return a
 }
 
 func (a *Agent[T]) Start(opts ...process.SpawnOpt) (process.Started, error) {
-	return a.server.Start(opts...)
+	return a.server.Start(append(a.spawnOpts, opts...)...)
 }
 
 func (a *Agent[T]) StartLink(linked *process.Process, opts ...process.SpawnOpt) (server.Supervised, error) {
-	return a.server.StartLink(linked, opts...)
+	return a.server.StartLink(linked, append(a.spawnOpts, opts...)...)
 }
 
 func (a *Agent[T]) Context() context.Context {
@@ -46,30 +49,30 @@ func (a *Agent[T]) Context() context.Context {
 
 func (a *Agent[T]) ChildSpec() server.ChildSpec {
 	return server.ChildSpec{
-		Restart:     server.PERMANENT,
-		Shutdown:    gotp.DEFAULT_SHUTDOWN,
-		Type:        server.WORKER,
-		Significant: true,
+		Restart:  server.PERMANENT,
+		Shutdown: gotp.DEFAULT_SHUTDOWN,
+		Type:     server.WORKER,
+		// Significant: true,
 	}
 }
 
-func (a *Agent[T]) Init(initFn InitFn[T]) (server.Continue[process.Message], error) {
+func (a *Agent[T]) Init(initFn InitFn[T]) (server.Continue[any], error) {
 	a.state = initFn()
-	return server.NoCont[process.Message](), nil
+	return server.NoCont[any](), nil
 }
 
-func (a *Agent[T]) HandleCall(msg process.Message, from process.PID) (server.Response[T], server.Continue[process.Message], error) {
+func (a *Agent[T]) HandleCall(msg process.Message, from process.PID) (server.Response[T], server.Continue[any], error) {
 	switch msg := msg.(type) {
 	case GetFn[T]:
 		slog.DebugContext(a.Context(), "HandleCall", slog.Any("from", from), slog.Any("msg", fmt.Sprintf("%T", msg)))
-		return server.Reply(msg(*a.state)), server.NoCont[process.Message](), nil
+		return server.Reply(msg(*a.state)), server.NoCont[any](), nil
 	case GetAndUpdateFn[T]:
 		slog.DebugContext(a.Context(), "HandleCall", slog.Any("from", from), slog.Any("msg", fmt.Sprintf("%T", msg)))
-		return server.Reply(msg(a.state)), server.NoCont[process.Message](), nil
+		return server.Reply(msg(a.state)), server.NoCont[any](), nil
 	case UpdateFn[T]:
 		slog.DebugContext(a.Context(), "HandleCall", slog.Any("from", from), slog.Any("msg", fmt.Sprintf("%T", msg)))
 		msg(a.state)
-		return server.NoReply[T](), server.NoCont[process.Message](), nil
+		return server.NoReply[T](), server.NoCont[any](), nil
 	default:
 		slog.DebugContext(a.Context(), "HandleCall", slog.Any("from", from), slog.Any("msg", fmt.Sprintf("%T", msg)))
 		cont, err := a.HandleInfo(msg)
@@ -77,13 +80,29 @@ func (a *Agent[T]) HandleCall(msg process.Message, from process.PID) (server.Res
 	}
 }
 
-func (a *Agent[T]) HandleCast(msg process.Message) (server.Continue[process.Message], error) {
+func (a *Agent[T]) HandleCast(msg process.Message) (server.Continue[any], error) {
 	switch msg := msg.(type) {
 	case UpdateFn[T]:
 		slog.DebugContext(a.Context(), "HandleCast", slog.Any("msg", fmt.Sprintf("%T", msg)))
 		msg(a.state)
-		return server.NoCont[process.Message](), nil
+		return server.NoCont[any](), nil
 	default:
 		return a.HandleInfo(msg)
 	}
+}
+
+func (a *Agent[T]) HandleInfo(msg process.Message) (server.Continue[any], error) {
+	switch msg := msg.(type) {
+	case process.ExitMsg:
+		if msg.PID == a.server.PID() {
+			slog.DebugContext(a.Context(), "HandleInfo", "exit", msg)
+			return server.Stop[any](msg.Reason), nil
+		}
+	}
+	slog.WarnContext(a.Context(), "HandleInfo", "unexpected", msg)
+	return server.NoCont[any](), nil
+}
+
+func (a *Agent[T]) Terminate(reason error) error {
+	return reason
 }
