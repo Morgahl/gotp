@@ -2,7 +2,6 @@ package supervisor
 
 import (
 	"fmt"
-	"log/slog"
 	"slices"
 	"time"
 
@@ -95,10 +94,7 @@ func (s *StaticSupervisor) Init(opts gotp.Options) (cont server.Continue[gotp.Ms
 	var flags Flags
 	var children []gotp.Supervisable
 
-	start := time.Now()
-	slog.Debug("StaticSupervisor.Init", slog.Any("id", s.id), slog.Any("opts", opts))
 	if flags, children, err = s.sup.Init(opts); err != nil {
-		slog.Error("StaticSupervisor.Init failed", slog.Any("id", s.id), slog.Any("error", err))
 		return server.NoCont[gotp.Msg](), err
 	}
 	s.flags = flags.ApplyDefaults()
@@ -106,20 +102,16 @@ func (s *StaticSupervisor) Init(opts gotp.Options) (cont server.Continue[gotp.Ms
 	s.childIDs = make(map[gotp.Atom]gotp.PID, len(children))
 	s.children = make(map[gotp.PID]child, len(children))
 
-	slog.Debug("StaticSupervisor.Init starting children", slog.Any("id", s.id), slog.Int("specs", len(s.specs)))
 	for _, child := range s.specs {
 		if child == nil {
-			slog.Error("StaticSupervisor.Init child is nil, skipping", slog.Any("id", s.id))
 			continue
 		} else if supervised, err := s.startChild(child); err != nil {
-			slog.Error("StaticSupervisor.Init failed to start child", slog.Any("id", s.id), slog.Any("error", err), slog.Any("child_id", child.ChildSpec().ID))
 			return server.NoCont[gotp.Msg](), err
 		} else {
 			s.registerChild(supervised)
 		}
 	}
 
-	slog.Debug("StaticSupervisor.Init children started", slog.Any("id", s.id), slog.Duration("took", time.Since(start)), slog.Int("children", len(s.children)))
 	return server.NoCont[gotp.Msg](), nil
 }
 
@@ -129,7 +121,6 @@ func (s *StaticSupervisor) HandleCall(msg gotp.Msg, _ gotp.PID) (resp server.Res
 		if pid, ok := s.findChild(m.child); ok {
 			return server.Reply[gotp.Msg](gotp.NewAlreadyStarted(pid)), server.NoCont[gotp.Msg](), nil
 		} else if supervised, err := s.startChild(m.child); err != nil {
-			slog.Error("StaticSupervisor.HandleCall failed to start child", slog.String("error", err.Error()))
 			return server.Reply[gotp.Msg](err), server.NoCont[gotp.Msg](), nil
 		} else {
 			s.registerChild(supervised)
@@ -171,11 +162,10 @@ func (s *StaticSupervisor) HandleInfo(info gotp.Msg) (cont server.Continue[gotp.
 			return server.NoCont[gotp.Msg](), nil
 		}
 		r := s.StartChild(child.supervised)
-		switch r := r.(type) {
+		switch r.(type) {
 		case gotp.PID, gotp.AlreadyStarted:
 			return server.NoCont[gotp.Msg](), nil
 		case error:
-			slog.Error("StaticSupervisor.HandleInfo failed to start child", slog.Any("error", r))
 			// TODO: track this timer somewhere?
 			_ = s.server.SendAfter(server.CallMsg[gotp.Msg, gotp.Msg](s.ID(), startChild{child.supervised}), s.flags.ResetPeriod)
 			return server.NoCont[gotp.Msg](), err
@@ -208,7 +198,6 @@ func (s *StaticSupervisor) Terminate(reason error) (newReson error) {
 		select {
 		case msg, ok := <-s.server.Receive():
 			if !ok {
-				slog.Error("StaticSupervisor.Terminate: mailbox closed unexpectedly")
 				panic("StaticSupervisor.Terminate: mailbox closed unexpectedly")
 			}
 			if msg, ok := msg.(gotp.Exit); ok {
@@ -216,9 +205,7 @@ func (s *StaticSupervisor) Terminate(reason error) (newReson error) {
 				continue
 			}
 
-			slog.Error("StaticSupervisor.Terminate: discarding message", slog.String("msg", fmt.Sprintf("%+v", msg)))
 		case <-time.After(timeout):
-			slog.Warn("StaticSupervisor.Terminate: child did not exit in time", slog.Any("pid", pid), slog.Any("timeout", timeout), slog.Any("reason", reason))
 			continue
 		}
 	}

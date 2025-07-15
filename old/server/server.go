@@ -2,7 +2,6 @@ package server
 
 import (
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/Morgahl/gotp/debug"
@@ -115,7 +114,6 @@ func (s *Server[I, Cl, R, Cs, Ct]) SendAfter(msg gotp.Msg, after time.Duration) 
 
 func (s *Server[I, Cl, R, Cs, Ct]) Receive() <-chan gotp.Msg {
 	if s.process == nil {
-		slog.Error("Server.Receive: Server not started")
 		return nil
 	}
 	return s.process.Receive()

@@ -56,10 +56,9 @@ func _init(rootCtx ctx.Cancellable, app application.Application, wg *sync.WaitGr
 			return reason
 		}
 
-		appStart := time.Now()
-		defer func(appStart time.Time) {
-			slog.InfoContext(rootCtx, "grts._init: exiting", slog.Duration("after", time.Since(appStart)))
-		}(appStart)
+		defer func(startUp time.Time) {
+			slog.InfoContext(rootCtx, "grts._init: exiting", slog.Duration("after", time.Since(startUp)))
+		}(startUp)
 		slog.InfoContext(rootCtx, "grts._init: supervision tree started", slog.Any("pid", sup.PID()), slog.Duration("took", time.Since(startUp)))
 
 		if msg, ok, err := process.ReceiveContext[process.ExitMsg](p, rootCtx); err != nil {

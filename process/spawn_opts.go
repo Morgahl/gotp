@@ -95,8 +95,9 @@ func Named(name gotp.Atom) SpawnOpt {
 	return func(p *Process) {
 		debug.Assert(p.state == STARTING_STATE, "process must be in STARTING_STATE for spawn options to be applied")
 		debug.Assert(p.name == "", "process name must be empty when setting it")
+		debug.Assert(p.deregNameHandle == nil, "process must not have a name deregistration handle when setting it")
 		p.name = name
-		registerNamed(name, p.Ref())
+		p.deregNameHandle = registerNamed(name, p.Ref())
 	}
 }
 

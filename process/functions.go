@@ -2,7 +2,6 @@ package process
 
 import (
 	"context"
-	"log/slog"
 	"time"
 
 	"github.com/Morgahl/gotp"
@@ -16,19 +15,17 @@ func Send[S Sendable](s S, m Message) {
 	defer func() { recover() }()
 	switch v := any(s).(type) {
 	case *Process:
-		slog.Debug("process.Send", slog.Any("message", m))
 		v.send(messageSignal(no_FLAGS, m))
 
 	case *Ref:
-		slog.Debug("process.Send", slog.Any("ref", v), slog.Any("message", m))
 		v.send(messageSignal(no_FLAGS, m))
 
 	case PID:
-		slog.Debug("process.Send", slog.Any("pid", v), slog.Any("message", m))
+		// TODO: this currently contends a global mutex, we should consider a more efficient way to send messages to PIDs
 		sendPID(v, m)
 
 	case gotp.Atom:
-		slog.Debug("process.Send", slog.Any("atom", v), slog.Any("message", m))
+		// TODO: this currently contends a global mutex, we should consider a more efficient way to send messages to named processes
 		sendNamed(v, m)
 	}
 }
@@ -59,6 +56,9 @@ func receive[M Message, D any](p *Process, done <-chan D) (_ M, _ bool, reason e
 	p.mailboxMu.Lock()
 	defer p.mailboxMu.Unlock()
 	defer p.maybeGarbageCollect()
+	// yieldAfter := len(p.mailbox) + 1
+	// for i := 0; i < yieldAfter; i++ {
+	// for {
 	switch p.state {
 	case STARTING_STATE, STARTED_STATE:
 		select {
@@ -70,12 +70,13 @@ func receive[M Message, D any](p *Process, done <-chan D) (_ M, _ bool, reason e
 		case <-done:
 			goto EXIT
 		default:
-			break
+			goto PROCESS_MESSAGES
 		}
 
 	case EXITING_STATE, EXITED_STATE:
 		goto EXIT
 	}
+	// }
 
 PROCESS_MESSAGES:
 	switch p.state {

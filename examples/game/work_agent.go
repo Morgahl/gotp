@@ -31,13 +31,13 @@ func GetWork(name gotp.Atom, from process.PID) (workItem, bool) {
 	return s.workItem, s.next
 }
 
-func SubmitProcessedWork(name gotp.Atom, work workItem) {
-	agent.Update(name, func(state *state) {
+func SubmitProcessedWork[S process.Sendable](agnt S, work workItem) {
+	agent.Update(agnt, func(state *state) {
 		slog.Info("Submitted work", "work", work)
 		state.receivedProcessed(work)
 		if state.processed == state.wanted {
-			slog.Info("All work processed", "processed", state.processed, "wanted", state.wanted)
-			agent.Stop(name, process.NORMAL)
+			slog.Info("All work processed", "generated", state.generated, "processed", state.processed, "wanted", state.wanted)
+			agent.Stop(agnt, process.NORMAL)
 		}
 	})
 }
@@ -58,7 +58,7 @@ func (s *state) generate() {
 	s.next = true
 	s.workItem = workItem{
 		id:   gotp.Atom(fmt.Sprintf("work-%d", s.generated)),
-		need: uint64(rand.Intn(15) + 16),
+		need: uint64(rand.Intn(56) + 5),
 	}
 }
 

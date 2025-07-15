@@ -68,7 +68,7 @@ func sendPID(pid PID, msg Message) {
 	}
 }
 
-func registerNamed(name gotp.Atom, ref *Ref) {
+func registerNamed(name gotp.Atom, ref *Ref) func() {
 	nameRegistryMu.Lock()
 	if _, exists := nameRegistry[name]; exists {
 		nameRegistryMu.Unlock()
@@ -76,6 +76,11 @@ func registerNamed(name gotp.Atom, ref *Ref) {
 	}
 	nameRegistry[name] = ref
 	nameRegistryMu.Unlock()
+	return func() {
+		nameRegistryMu.Lock()
+		delete(nameRegistry, name)
+		nameRegistryMu.Unlock()
+	}
 }
 
 func sendNamed(name gotp.Atom, msg Message) {

@@ -3,6 +3,7 @@ package game
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"math/rand"
 	"time"
 
@@ -79,6 +80,7 @@ func (f *Crew) HandleContinue(msg any) (server.Continue[any], error) {
 				f.server.Send(server.CastMsg(w))
 				return server.NoCont[any](), nil
 			}
+			slog.InfoContext(f.Context(), "No more work available, stopping crew")
 			return server.Stop[any](process.NORMAL), nil
 		}
 	}
@@ -91,11 +93,11 @@ func (f *Crew) HandleCast(work workItem) (server.Continue[any], error) {
 		load := assessWork()
 		work.taken += load
 		f.server.SendAfter(server.CastMsg(work), load)
-	} else {
-		SubmitProcessedWork(f.agent, work)
-		return server.Cont[any](atom_GET_WORK), nil
+		return server.NoCont[any](), nil
 	}
-	return server.NoCont[any](), nil
+
+	SubmitProcessedWork(f.agent, work)
+	return server.Cont[any](atom_GET_WORK), nil
 }
 
 func (f *Crew) HandleInfo(msg process.Message) (server.Continue[any], error) {

@@ -36,6 +36,9 @@ var greekList = []gotp.Atom{
 	"omega",
 }
 
+var greekGreekList = permuteLists(greekList, greekList)
+var greekGreekGreekList = permuteLists(greekGreekList, greekList)
+
 var namesList = []gotp.Atom{
 	"alice",
 	"bob",
@@ -65,8 +68,6 @@ var namesList = []gotp.Atom{
 	"zara",
 }
 
-var greekGreekList = permuteLists(greekList, greekList)
-
 var greekNamesList = permuteLists(greekList, namesList)
 
 type Game struct{}
@@ -83,6 +84,7 @@ func (f Game) Start(st application.StartType) (server.Supervisable, error) {
 	if st.IsNormal() {
 		// return NewTeam("teams", supervisor.Flags{}, buildTeams("quartermaster", greekList[:10], namesList[:10])...), nil
 		// return NewTeam("teams", supervisor.Flags{}, buildTeams("quartermaster", greekList, namesList)...), nil
+		// return NewTeam("teams", supervisor.Flags{}, buildTeams("quartermaster", greekGreekList, greekNamesList)...), nil
 		return NewTeam("teams", supervisor.Flags{}, buildTeams("quartermaster", greekGreekList, greekNamesList)...), nil
 	} else if _, ok := st.IsFailover(); ok {
 		return nil, errors.New("failover not supported in Game")

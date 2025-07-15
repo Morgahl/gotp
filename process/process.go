@@ -25,17 +25,18 @@ type Started interface {
 type RunFn func(*Process) error
 
 type Process struct {
-	pid           PID
-	name          gotp.Atom
-	flags         ProcessFlags
-	runFn         RunFn
-	state         processState
-	exitReason    error
-	context       context.Context
-	contextCancel context.CancelCauseFunc
-	deregHandle   func()
+	pid             PID
+	name            gotp.Atom
+	flags           ProcessFlags
+	runFn           RunFn
+	state           processState
+	exitReason      error
+	context         context.Context
+	contextCancel   context.CancelCauseFunc
+	deregPidHandle  func()
+	deregNameHandle func()
 
-	// message passing structures
+	// message passing structures; must hold p.mailboxMu to access or modify these as appropriate
 	mailboxMu  sync.Mutex
 	mailbox    []Message
 	signalChan chan signal[Message]
@@ -100,7 +101,7 @@ func (p *Process) Start() {
 		debug.Throw("process.Start: cannot start process in state %s", p.state)
 	case STARTING_STATE:
 		p.state = STARTED_STATE
-		p.deregHandle = registerPID(p)
+		p.deregPidHandle = registerPID(p)
 		go p.run()
 	}
 }
@@ -132,9 +133,9 @@ func (p *Process) run() {
 	defer func() {
 		p.exitReason = debug.Recover(recover(), "Process.run", p.exitReason)
 		p.mailboxMu.Lock()
-		if p.deregHandle != nil {
-			p.deregHandle()
-			p.deregHandle = nil
+		if p.deregPidHandle != nil {
+			p.deregPidHandle()
+			p.deregPidHandle = nil
 		}
 		for ref := range p.monitors.refs() {
 			ref.send(downSignal(p.pid, ref, p.exitReason))
