@@ -20,12 +20,12 @@ var (
 	pidRegistry   map[PID]*Process
 
 	nameRegistryMu sync.RWMutex
-	nameRegistry   map[gotp.Atom]*Ref
+	nameRegistry   map[gotp.Atom]Ref
 )
 
 func init() {
 	pidRegistry = make(map[PID]*Process, registry_DEFAULT_SIZE)
-	nameRegistry = make(map[gotp.Atom]*Ref, registry_DEFAULT_SIZE)
+	nameRegistry = make(map[gotp.Atom]Ref, registry_DEFAULT_SIZE)
 }
 
 func nextPID() PID {
@@ -68,7 +68,7 @@ func sendPID(pid PID, msg Message) {
 	}
 }
 
-func registerNamed(name gotp.Atom, ref *Ref) func() {
+func registerNamed(name gotp.Atom, ref Ref) func() {
 	nameRegistryMu.Lock()
 	if _, exists := nameRegistry[name]; exists {
 		nameRegistryMu.Unlock()

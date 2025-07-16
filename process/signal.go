@@ -26,7 +26,7 @@ func messageSignal[M Message](flags signalFlags, message M) signal[M] {
 	}
 }
 
-func linkRequestSignal(link RequestMsg[*Ref]) signal[Message] {
+func linkRequestSignal(link RequestMsg[Ref]) signal[Message] {
 	return signal[Message]{
 		_type:   LINK_SIGNAL,
 		flags:   link_FLAG | request_FLAG,
@@ -34,7 +34,7 @@ func linkRequestSignal(link RequestMsg[*Ref]) signal[Message] {
 	}
 }
 
-func linkReplySignal(link ReplyMsg[*Ref]) signal[Message] {
+func linkReplySignal(link ReplyMsg[Ref]) signal[Message] {
 	return signal[Message]{
 		_type:   LINK_SIGNAL,
 		flags:   link_FLAG | reply_FLAG,
@@ -42,7 +42,7 @@ func linkReplySignal(link ReplyMsg[*Ref]) signal[Message] {
 	}
 }
 
-func unlinkSignal(unlink RequestMsg[*Ref]) signal[Message] {
+func unlinkSignal(unlink RequestMsg[Ref]) signal[Message] {
 	return signal[Message]{
 		_type:   UNLINK_SIGNAL,
 		flags:   link_FLAG | cast_FLAG,
@@ -52,7 +52,7 @@ func unlinkSignal(unlink RequestMsg[*Ref]) signal[Message] {
 
 type exitSig struct {
 	PID    PID
-	Ref    *Ref
+	Ref    Ref
 	Reason error
 }
 
@@ -63,7 +63,7 @@ func (e exitSig) ToExit() ExitMsg {
 	}
 }
 
-func exitSignal(flags signalFlags, sender PID, ref *Ref, reason error) signal[Message] {
+func exitSignal(flags signalFlags, sender PID, ref Ref, reason error) signal[Message] {
 	return signal[Message]{
 		_type: EXIT_SIGNAL,
 		flags: flags,
@@ -75,7 +75,7 @@ func exitSignal(flags signalFlags, sender PID, ref *Ref, reason error) signal[Me
 	}
 }
 
-func monitorSignal(monitor RequestMsg[*Ref]) signal[Message] {
+func monitorSignal(monitor RequestMsg[Ref]) signal[Message] {
 	return signal[Message]{
 		_type:   MONITOR_SIGNAL,
 		flags:   monitor_FLAG | cast_FLAG,
@@ -83,7 +83,7 @@ func monitorSignal(monitor RequestMsg[*Ref]) signal[Message] {
 	}
 }
 
-func deMonitorSignal[M Message](deMonitor RequestMsg[*Ref]) signal[Message] {
+func deMonitorSignal[M Message](deMonitor RequestMsg[Ref]) signal[Message] {
 	return signal[Message]{
 		_type:   DE_MONITOR_SIGNAL,
 		flags:   monitor_FLAG | cast_FLAG,
@@ -91,7 +91,7 @@ func deMonitorSignal[M Message](deMonitor RequestMsg[*Ref]) signal[Message] {
 	}
 }
 
-func downSignal(from PID, re *Ref, reason error) signal[Message] {
+func downSignal(from PID, re Ref, reason error) signal[Message] {
 	return signal[Message]{
 		_type: DOWN_SIGNAL,
 		message: DownMsg{
@@ -102,7 +102,7 @@ func downSignal(from PID, re *Ref, reason error) signal[Message] {
 	}
 }
 
-func groupLeaderSignal(re *Ref) signal[Message] {
+func groupLeaderSignal(re Ref) signal[Message] {
 	return signal[Message]{
 		_type:   GROUP_LEADER_SIGNAL,
 		message: re,

@@ -8,7 +8,7 @@ import (
 )
 
 type Sendable interface {
-	*Process | *Ref | PID | gotp.Atom
+	*Process | Ref | PID | gotp.Atom
 }
 
 func Send[S Sendable](s S, m Message) {
@@ -17,7 +17,7 @@ func Send[S Sendable](s S, m Message) {
 	case *Process:
 		v.send(messageSignal(no_FLAGS, m))
 
-	case *Ref:
+	case Ref:
 		v.send(messageSignal(no_FLAGS, m))
 
 	case PID:
@@ -56,9 +56,6 @@ func receive[M Message, D any](p *Process, done <-chan D) (_ M, _ bool, reason e
 	p.mailboxMu.Lock()
 	defer p.mailboxMu.Unlock()
 	defer p.maybeGarbageCollect()
-	// yieldAfter := len(p.mailbox) + 1
-	// for i := 0; i < yieldAfter; i++ {
-	// for {
 	switch p.state {
 	case STARTING_STATE, STARTED_STATE:
 		select {
@@ -76,7 +73,6 @@ func receive[M Message, D any](p *Process, done <-chan D) (_ M, _ bool, reason e
 	case EXITING_STATE, EXITED_STATE:
 		goto EXIT
 	}
-	// }
 
 PROCESS_MESSAGES:
 	switch p.state {
@@ -121,17 +117,17 @@ func Exit[S Sendable](s S, reason error) {
 	defer func() { recover() }()
 	switch v := any(s).(type) {
 	case *Process:
-		v.send(exitSignal(no_FLAGS, v.pid, nil, reason))
+		v.send(exitSignal(no_FLAGS, v.pid, Ref{}, reason))
 
-	case *Ref:
+	case Ref:
 		v.send(exitSignal(no_FLAGS, v.pid, v, reason))
 
 	case PID:
-		sendPID(v, exitSignal(no_FLAGS, v, nil, reason))
+		sendPID(v, exitSignal(no_FLAGS, v, Ref{}, reason))
 
 	case gotp.Atom:
 		if pid, found := namedPID(v); found {
-			sendPID(pid, exitSignal(no_FLAGS, pid, nil, reason))
+			sendPID(pid, exitSignal(no_FLAGS, pid, Ref{}, reason))
 		}
 	}
 }

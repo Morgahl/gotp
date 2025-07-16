@@ -27,7 +27,6 @@ func GetWork(name gotp.Atom, from process.PID) (workItem, bool) {
 	if !ok || !s.next {
 		return workItem{}, false
 	}
-	slog.Debug("Generated work item", "work", s.workItem, "next", s.next)
 	return s.workItem, s.next
 }
 

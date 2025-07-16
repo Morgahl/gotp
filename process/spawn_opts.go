@@ -12,7 +12,7 @@ type SpawnOpt func(*Process)
 
 func Linked(pp *Process) SpawnOpt {
 	ref := pp.Ref()
-	s := linkRequestSignal(RequestMsg[*Ref]{
+	s := linkRequestSignal(RequestMsg[Ref]{
 		From:    pp.PID(),
 		Ref:     ref,
 		Message: ref,
@@ -27,7 +27,7 @@ func Linked(pp *Process) SpawnOpt {
 // TODO: rethink the *Process passing here we may want this to just be a builder struct instead for safety
 func Monitored(p *Process) SpawnOpt {
 	ref := p.Ref()
-	s := monitorSignal(RequestMsg[*Ref]{
+	s := monitorSignal(RequestMsg[Ref]{
 		From:    p.PID(),
 		Ref:     ref,
 		Message: ref,
@@ -39,7 +39,7 @@ func Monitored(p *Process) SpawnOpt {
 	}
 }
 
-func GroupLeader(leader *Ref) SpawnOpt {
+func GroupLeader(leader Ref) SpawnOpt {
 	debug.Assert(leader.IsValid(), "group leader must be a valid reference")
 	return func(p *Process) {
 		debug.Assert(p.state == STARTING_STATE, "process must be in STARTING_STATE for spawn options to be applied")
@@ -95,9 +95,7 @@ func Named(name gotp.Atom) SpawnOpt {
 	return func(p *Process) {
 		debug.Assert(p.state == STARTING_STATE, "process must be in STARTING_STATE for spawn options to be applied")
 		debug.Assert(p.name == "", "process name must be empty when setting it")
-		debug.Assert(p.deregNameHandle == nil, "process must not have a name deregistration handle when setting it")
 		p.name = name
-		p.deregNameHandle = registerNamed(name, p.Ref())
 	}
 }
 
