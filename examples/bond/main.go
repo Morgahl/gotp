@@ -6,9 +6,9 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/Morgahl/gotp"
 	"github.com/Morgahl/gotp/agent"
 	"github.com/Morgahl/gotp/logger"
+	"github.com/Morgahl/gotp/process"
 )
 
 func init() {
@@ -16,15 +16,17 @@ func init() {
 }
 
 func main() {
+	// runtime.GOMAXPROCS(1)
 	start := time.Now()
 	agent, err := newAgent(baseline[float64]())
 	if err != nil {
 		panic(err)
 	}
-	count := rand.Intn(1_000_000) + 500_000
+	count := 100_000_000
 	slog.Info("Running missions with agent", "pid", agent.pid, "count", count)
+	runStart := time.Now()
 	runMissions(agent, count)
-	slog.Info("Completed missions", "count", count)
+	slog.Info("Completed missions", "count", count, "took", time.Since(runStart))
 	value := agent.EvaluatePerformance()
 	took := time.Since(start)
 	slog.Info("Performance Evaluation", "result", value, "took", took, "avg", took/time.Duration(count))
@@ -54,7 +56,7 @@ type number interface {
 }
 
 type Agent[N number] struct {
-	pid gotp.PID
+	pid process.PID
 }
 
 func newAgent[N number](initFn agent.InitFn[state[N]]) (*Agent[N], error) {
@@ -62,7 +64,7 @@ func newAgent[N number](initFn agent.InitFn[state[N]]) (*Agent[N], error) {
 	if err != nil {
 		return nil, err
 	}
-	c := &Agent[N]{pid: server.ID()}
+	c := &Agent[N]{pid: server.PID()}
 	return c, nil
 }
 

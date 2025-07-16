@@ -4,11 +4,12 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/Morgahl/gotp"
+	"github.com/Morgahl/gotp/process"
+	"github.com/Morgahl/gotp/server"
 )
 
 type startChild struct {
-	child gotp.Supervisable
+	child server.Supervisable
 }
 
 func (s startChild) String() string {
@@ -20,7 +21,7 @@ func (s startChild) LogValue() slog.Value {
 }
 
 type stopChild struct {
-	pid gotp.PID
+	pid process.PID
 }
 
 func (s stopChild) String() string {
@@ -32,10 +33,10 @@ func (s stopChild) LogValue() slog.Value {
 }
 
 type InvalidChild struct {
-	child gotp.Supervisable
+	child server.Supervisable
 }
 
-func NewInvalidChild(child gotp.Supervisable) InvalidChild {
+func NewInvalidChild(child server.Supervisable) InvalidChild {
 	return InvalidChild{child: child}
 }
 

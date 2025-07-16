@@ -33,6 +33,10 @@ func (e Exit) ID() PID {
 	return e.pid
 }
 
+func (e Exit) Reason() error {
+	return e.reason
+}
+
 func (e Exit) Error() string {
 	if e.reason == nil {
 		return fmt.Sprintf("Exit{%s}", e.pid)

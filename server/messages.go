@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/Morgahl/gotp"
+	"github.com/Morgahl/gotp/process"
 )
 
 type respEnum uint8
@@ -44,6 +44,7 @@ type contAtom uint8
 const (
 	NO_CONTINUE contAtom = iota
 	CONTINUE
+	STOP
 )
 
 type Continue[C any] struct {
@@ -59,13 +60,17 @@ func Cont[C any](contArg C) Continue[C] {
 	return Continue[C]{atom: CONTINUE, arg: contArg}
 }
 
-type call[M gotp.Msg, R gotp.Msg] struct {
-	from gotp.PID
+func Stop[C any](reason C) Continue[C] {
+	return Continue[C]{atom: STOP, arg: reason}
+}
+
+type call[M process.Message, R process.Message] struct {
+	from process.PID
 	req  M
 	resp chan R
 }
 
-func CallMsg[M gotp.Msg, R gotp.Msg](from gotp.PID, req M) call[M, R] {
+func CallMsg[M process.Message, R process.Message](from process.PID, req M) call[M, R] {
 	return call[M, R]{from: from, req: req, resp: make(chan R, 1)}
 }
 
@@ -77,11 +82,11 @@ func (c call[M, R]) LogValue() slog.Value {
 	return slog.StringValue(c.String())
 }
 
-type cast[M gotp.Msg] struct {
+type cast[M process.Message] struct {
 	req M
 }
 
-func CastMsg[M gotp.Msg](req M) cast[M] {
+func CastMsg[M process.Message](req M) cast[M] {
 	return cast[M]{req: req}
 }
 

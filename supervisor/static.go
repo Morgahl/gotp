@@ -1,27 +1,29 @@
 package supervisor
 
 import (
+	"context"
+	"errors"
 	"fmt"
-	"log/slog"
 	"slices"
 	"time"
 
 	"github.com/Morgahl/gotp"
+	"github.com/Morgahl/gotp/process"
 	"github.com/Morgahl/gotp/server"
 )
 
-var _ gotp.Supervisable = &StaticSupervisor{}
-var _ gotp.Supervised = &StaticSupervisor{}
-var _ server.Serverable[gotp.Options, gotp.Msg, gotp.Msg, gotp.Msg, gotp.Msg] = &StaticSupervisor{}
+var _ server.Supervisable = &StaticSupervisor{}
+var _ server.Supervised = &StaticSupervisor{}
+var _ server.Serverable[gotp.Options, process.Message, process.Message, process.Message, process.Message] = &StaticSupervisor{}
 
 type StaticSupervisor struct {
 	id       gotp.Atom
 	sup      Supervisor[gotp.Options]
 	flags    Flags
-	specs    []gotp.Supervisable
-	childIDs map[gotp.Atom]gotp.PID
-	children map[gotp.PID]child
-	server   *server.Server[gotp.Options, gotp.Msg, gotp.Msg, gotp.Msg, gotp.Msg]
+	specs    []server.Supervisable
+	childIDs map[gotp.Atom]process.PID
+	children map[process.PID]child
+	server   *server.Server[gotp.Options, process.Message, process.Message, process.Message, process.Message]
 }
 
 func Static(id gotp.Atom, sup Supervisor[gotp.Options], initArg gotp.Options) *StaticSupervisor {
@@ -30,45 +32,43 @@ func Static(id gotp.Atom, sup Supervisor[gotp.Options], initArg gotp.Options) *S
 	return static
 }
 
-func (s *StaticSupervisor) ChildSpec() gotp.ChildSpec {
-	return gotp.ChildSpec{
-		ID:          s.id,
-		Restart:     gotp.PERMANENT,
-		Shutdown:    gotp.DEFAULT_SHUTDOWN,
-		Type:        gotp.SUPERVISOR,
-		Significant: true,
-	}
+func (s *StaticSupervisor) Context() context.Context {
+	return s.server.Process().Context()
 }
 
-func (s *StaticSupervisor) Start(opts ...gotp.SpawnOpt) (gotp.Started, error) {
+func (s *StaticSupervisor) ChildSpec() server.ChildSpec {
+	return s.sup.ChildSpec()
+}
+
+func (s *StaticSupervisor) Start(opts ...process.SpawnOpt) (process.Started, error) {
 	return s.server.Start(opts...)
 }
 
-func (s *StaticSupervisor) StartLink(link gotp.PID, opts ...gotp.SpawnOpt) (gotp.Supervised, error) {
+func (s *StaticSupervisor) StartLink(link *process.Process, opts ...process.SpawnOpt) (server.Supervised, error) {
 	return s.server.StartLink(link, opts...)
 }
 
-func (s *StaticSupervisor) ID() gotp.PID {
-	return s.server.ID()
+func (s *StaticSupervisor) PID() process.PID {
+	return s.server.PID()
 }
 
-func (s *StaticSupervisor) Send(msg gotp.Msg) {
+func (s *StaticSupervisor) Send(msg process.Message) {
 	s.server.Send(msg)
 }
 
-func (s *StaticSupervisor) SendAfter(msg gotp.Msg, delay time.Duration) *time.Timer {
+func (s *StaticSupervisor) SendAfter(msg process.Message, delay time.Duration) *time.Timer {
 	return s.server.SendAfter(msg, delay)
 }
 
-func (s *StaticSupervisor) Receive() <-chan gotp.Msg {
-	return s.server.Receive()
+func (s *StaticSupervisor) Exit(reason error) {
+	s.server.Exit(reason)
 }
 
-func (s *StaticSupervisor) StartChild(child gotp.Supervisable) gotp.Msg {
-	self := s.ID()
-	if resp, ok := server.Call[gotp.Msg, gotp.Msg](self, self, startChild{child}); ok {
+func (s *StaticSupervisor) StartChild(child server.Supervisable) process.Message {
+	self := s.PID()
+	if resp, ok := server.Call[process.Message, process.Message](self, self, startChild{child}, 0); ok {
 		switch resp := resp.(type) {
-		case gotp.PID, gotp.AlreadyStarted, error:
+		case process.PID, server.AlreadyStarted, error:
 			return resp
 		default:
 			panic(fmt.Sprintf("StaticSupervisor.StartChild: unexpected response type %T", resp))
@@ -77,9 +77,9 @@ func (s *StaticSupervisor) StartChild(child gotp.Supervisable) gotp.Msg {
 	return nil
 }
 
-func (s *StaticSupervisor) StopChild(pid gotp.PID) gotp.Msg {
-	self := s.ID()
-	if resp, ok := server.Call[gotp.Msg, gotp.Msg](self, self, stopChild{pid}); ok {
+func (s *StaticSupervisor) StopChild(pid process.PID) process.Message {
+	self := s.PID()
+	if resp, ok := server.Call[process.Message, process.Message](self, self, stopChild{pid}, 0); ok {
 		switch resp := resp.(type) {
 		case bool:
 			return resp
@@ -90,102 +90,107 @@ func (s *StaticSupervisor) StopChild(pid gotp.PID) gotp.Msg {
 	return nil
 }
 
-func (s *StaticSupervisor) Init(opts gotp.Options) (cont server.Continue[gotp.Msg], err error) {
-	var flags Flags
-	var children []gotp.Supervisable
+func (s *StaticSupervisor) Init(opts gotp.Options) (cont server.Continue[process.Message], err error) {
+	s.server.Process().UpdateFlags(func(flags process.ProcessFlags) process.ProcessFlags {
+		return flags | process.TRAP_EXIT_FLAG
+	})
 
-	start := time.Now()
-	slog.Debug("StaticSupervisor.Init", slog.Any("id", s.id), slog.Any("opts", opts))
+	var flags Flags
+	var children []server.Supervisable
+
 	if flags, children, err = s.sup.Init(opts); err != nil {
-		slog.Error("StaticSupervisor.Init failed", slog.Any("id", s.id), slog.Any("error", err))
-		return server.NoCont[gotp.Msg](), err
+		return server.NoCont[process.Message](), err
 	}
 	s.flags = flags.ApplyDefaults()
 	s.specs = children
-	s.childIDs = make(map[gotp.Atom]gotp.PID, len(children))
-	s.children = make(map[gotp.PID]child, len(children))
+	s.childIDs = make(map[gotp.Atom]process.PID, len(children))
+	s.children = make(map[process.PID]child, len(children))
 
-	slog.Debug("StaticSupervisor.Init starting children", slog.Any("id", s.id), slog.Int("specs", len(s.specs)))
 	for _, child := range s.specs {
 		if child == nil {
-			slog.Error("StaticSupervisor.Init child is nil, skipping", slog.Any("id", s.id))
 			continue
 		} else if supervised, err := s.startChild(child); err != nil {
-			slog.Error("StaticSupervisor.Init failed to start child", slog.Any("id", s.id), slog.Any("error", err), slog.Any("child_id", child.ChildSpec().ID))
-			return server.NoCont[gotp.Msg](), err
+			return server.NoCont[process.Message](), err
 		} else {
 			s.registerChild(supervised)
 		}
 	}
 
-	slog.Debug("StaticSupervisor.Init children started", slog.Any("id", s.id), slog.Duration("took", time.Since(start)), slog.Int("children", len(s.children)))
-	return server.NoCont[gotp.Msg](), nil
+	return server.NoCont[process.Message](), nil
 }
 
-func (s *StaticSupervisor) HandleCall(msg gotp.Msg, _ gotp.PID) (resp server.Response[gotp.Msg], cont server.Continue[gotp.Msg], err error) {
+func (s *StaticSupervisor) HandleCall(msg process.Message, _ process.PID) (resp server.Response[process.Message], cont server.Continue[process.Message], err error) {
 	switch m := msg.(type) {
 	case startChild:
 		if pid, ok := s.findChild(m.child); ok {
-			return server.Reply[gotp.Msg](gotp.NewAlreadyStarted(pid)), server.NoCont[gotp.Msg](), nil
+			return server.Reply[process.Message](server.NewAlreadyStarted(pid)), server.NoCont[process.Message](), nil
 		} else if supervised, err := s.startChild(m.child); err != nil {
-			slog.Error("StaticSupervisor.HandleCall failed to start child", slog.String("error", err.Error()))
-			return server.Reply[gotp.Msg](err), server.NoCont[gotp.Msg](), nil
+			return server.Reply[process.Message](err), server.NoCont[process.Message](), nil
 		} else {
 			s.registerChild(supervised)
-			return server.Reply[gotp.Msg](supervised.ID()), server.NoCont[gotp.Msg](), nil
+			return server.Reply[process.Message](supervised.PID()), server.NoCont[process.Message](), nil
 		}
 
 	case stopChild:
 		child, ok := s.findChildByPID(m.pid)
 		if !ok {
-			return server.Reply[gotp.Msg](false), server.NoCont[gotp.Msg](), nil
+			return server.Reply[process.Message](false), server.NoCont[process.Message](), nil
 		}
-		child.supervised.Send(gotp.NewExit(m.pid, gotp.Kill{}))
+		child.supervised.Send(process.ExitMsg{PID: s.PID(), Reason: process.KILL})
 		removed := s.deregisterChild(m.pid)
-		return server.Reply[gotp.Msg](removed), server.NoCont[gotp.Msg](), nil
+		return server.Reply[process.Message](removed), server.NoCont[process.Message](), nil
 	}
 
 	panic(fmt.Sprintf("StaticSupervisor.HandleCall: unknown message type %T", msg))
 }
 
-func (s *StaticSupervisor) HandleCast(msg gotp.Msg) (cont server.Continue[gotp.Msg], err error) {
-	return server.NoCont[gotp.Msg](), nil
+func (s *StaticSupervisor) HandleCast(msg process.Message) (cont server.Continue[process.Message], err error) {
+	return server.NoCont[process.Message](), nil
 }
 
-func (s *StaticSupervisor) HandleContinue(arg gotp.Msg) (cont server.Continue[gotp.Msg], err error) {
-	return server.NoCont[gotp.Msg](), nil
+func (s *StaticSupervisor) HandleContinue(arg process.Message) (cont server.Continue[process.Message], err error) {
+	return server.NoCont[process.Message](), nil
 }
 
-func (s *StaticSupervisor) HandleInfo(info gotp.Msg) (cont server.Continue[gotp.Msg], err error) {
-	switch info := info.(type) {
-	case gotp.Exit:
-		child, ok := s.findChildByPID(info.ID())
-		if !ok {
-			return server.NoCont[gotp.Msg](), nil
-		} else if !s.deregisterChild(info.ID()) {
-			return server.NoCont[gotp.Msg](), nil
-		} else if !s.shouldRestart(info.ID()) {
-			return server.NoCont[gotp.Msg](), nil
+func (s *StaticSupervisor) HandleInfo(info process.Message) (cont server.Continue[process.Message], err error) {
+	defer func() {
+		if r := recover(); r != nil {
 		}
-		r := s.StartChild(child.supervised)
-		switch r := r.(type) {
-		case gotp.PID, gotp.AlreadyStarted:
-			return server.NoCont[gotp.Msg](), nil
+	}()
+	switch info := info.(type) {
+	case process.ExitMsg:
+		if info.PID == s.server.PID() {
+			return server.NoCont[process.Message](), info.Reason
+		}
+
+		child, ok := s.findChildByPID(info.PID)
+		if !ok {
+			return server.NoCont[process.Message](), nil
+		}
+		// need to call this here as the deregisterChild will remove the child from the map
+		shouldRestart := s.shouldRestart(info.PID, info.Reason)
+		if !s.deregisterChild(info.PID) {
+			return server.NoCont[process.Message](), nil
+		} else if !shouldRestart {
+			return server.NoCont[process.Message](), nil
+		}
+		switch s.StartChild(child.supervised).(type) {
+		case process.PID, server.AlreadyStarted:
+			return server.NoCont[process.Message](), nil
 		case error:
-			slog.Error("StaticSupervisor.HandleInfo failed to start child", slog.Any("error", r))
 			// TODO: track this timer somewhere?
-			_ = s.server.SendAfter(server.CallMsg[gotp.Msg, gotp.Msg](s.ID(), startChild{child.supervised}), s.flags.ResetPeriod)
-			return server.NoCont[gotp.Msg](), err
+			// TODO: also this likely need to be a computed reset for the after timer
+			_ = s.server.SendAfter(server.CallMsg[process.Message, process.Message](s.PID(), startChild{child.supervised}), s.flags.ResetPeriod)
+			return server.NoCont[process.Message](), err
 
 		default:
-			return server.NoCont[gotp.Msg](), nil
+			return server.NoCont[process.Message](), nil
 		}
 	}
-	return server.NoCont[gotp.Msg](), nil
+	return server.NoCont[process.Message](), nil
 }
 
 func (s *StaticSupervisor) Terminate(reason error) (newReson error) {
-
 	children := make([]child, 0, len(s.children))
 	for _, c := range s.children {
 		children = append(children, c)
@@ -194,67 +199,61 @@ func (s *StaticSupervisor) Terminate(reason error) (newReson error) {
 	// TODO: ultimately we want to maintin the processes as a stack and reap them in reverse order
 	// TODO: for now, we sort them by PID in descending order to ensure that the most recently started
 	// TODO: processes are terminated first
+	// TODO: we may be able to borrow lazy GC practices from the process.Process's mailbox cleanup to
+	// TODO: avoid the need to sort the children here as well as keep an ordered stack of children
+	// TODO: for the correct one_for_one, one_for_all, and rest_for_one handling
 	slices.SortFunc(children, func(i, j child) int {
-		return gotp.ComparePID(i.supervised.ID(), j.supervised.ID()) * -1
+		return process.ComparePID(i.supervised.PID(), j.supervised.PID()) * -1
 	})
 
-	// shutdown:
 	for _, child := range children {
-		pid := child.supervised.ID()
+		pid := child.supervised.PID()
 		timeout := child.supervised.ChildSpec().Shutdown
-		child.supervised.Send(gotp.NewExit(pid, reason))
+		child.supervised.Send(process.ExitMsg{PID: pid, Reason: reason})
 
-		select {
-		case msg, ok := <-s.server.Receive():
-			if !ok {
-				slog.Error("StaticSupervisor.Terminate: mailbox closed unexpectedly")
-				panic("StaticSupervisor.Terminate: mailbox closed unexpectedly")
-			}
-			if msg, ok := msg.(gotp.Exit); ok {
-				s.deregisterChild(msg.ID())
-				continue
-			}
-
-			slog.Error("StaticSupervisor.Terminate: discarding message", slog.String("msg", fmt.Sprintf("%+v", msg)))
-		case <-time.After(timeout):
-			slog.Warn("StaticSupervisor.Terminate: child did not exit in time", slog.Any("pid", pid), slog.Any("timeout", timeout), slog.Any("reason", reason))
+		if msg, ok, err := process.ReceiveWithTimeout[process.ExitMsg](s.server.Process(), timeout); err != nil {
+			return err
+		} else if ok {
+			s.deregisterChild(msg.PID)
 			continue
+		} else {
+			s.deregisterChild(msg.PID)
 		}
 	}
 	return reason
 }
 
-func (s *StaticSupervisor) findChild(child gotp.Supervisable) (gotp.PID, bool) {
+func (s *StaticSupervisor) findChild(child server.Supervisable) (process.PID, bool) {
 	if child == nil {
-		return gotp.PIDZero(), false
+		return process.PIDZero(), false
 	}
 	if pid, ok := s.childIDs[child.ChildSpec().ID]; ok {
 		return pid, true
 	}
-	return gotp.PIDZero(), false
+	return process.PIDZero(), false
 }
 
-func (s *StaticSupervisor) findChildByPID(pid gotp.PID) (child child, ok bool) {
-	if pid == gotp.PIDZero() {
+func (s *StaticSupervisor) findChildByPID(pid process.PID) (child child, ok bool) {
+	if pid == process.PIDZero() {
 		return child, false
 	}
 	child, ok = s.children[pid]
 	return child, ok
 }
 
-func (s *StaticSupervisor) startChild(child gotp.Supervisable) (gotp.Supervised, error) {
-	return child.StartLink(s.server.ID(), child.ChildSpec().SpawnOpts...)
+func (s *StaticSupervisor) startChild(child server.Supervisable) (server.Supervised, error) {
+	return child.StartLink(s.server.Process(), child.ChildSpec().SpawnOpts...)
 }
 
-func (s *StaticSupervisor) registerChild(supervised gotp.Supervised) {
-	pid := supervised.ID()
+func (s *StaticSupervisor) registerChild(supervised server.Supervised) {
+	pid := supervised.PID()
 	s.children[pid] = child{supervised: supervised}
 	if id := supervised.ChildSpec().ID; id != "" {
 		s.childIDs[id] = pid
 	}
 }
 
-func (s *StaticSupervisor) deregisterChild(pid gotp.PID) (deleted bool) {
+func (s *StaticSupervisor) deregisterChild(pid process.PID) (deleted bool) {
 	if child, ok := s.children[pid]; ok {
 		if id := child.supervised.ChildSpec().ID; id != "" {
 			delete(s.childIDs, id)
@@ -265,8 +264,8 @@ func (s *StaticSupervisor) deregisterChild(pid gotp.PID) (deleted bool) {
 	return deleted
 }
 
-func (s *StaticSupervisor) shouldRestart(pid gotp.PID) (restart bool) {
-	if s.server.ID() == pid {
+func (s *StaticSupervisor) shouldRestart(pid process.PID, reason error) (restart bool) {
+	if s.server.PID() == pid {
 		return false
 	}
 
@@ -274,13 +273,15 @@ func (s *StaticSupervisor) shouldRestart(pid gotp.PID) (restart bool) {
 	if !ok {
 		return false
 	}
-
-	switch cs.supervised.ChildSpec().Restart {
-	case gotp.TEMPORARY, gotp.TRANSIENT:
+	spec := cs.supervised.ChildSpec()
+	switch spec.Restart {
+	case server.TEMPORARY, server.TRANSIENT:
 		return false
-	case gotp.PERMANENT:
+	case server.PERMANENT:
+		if errors.Is(reason, process.KILL) || errors.Is(reason, process.NORMAL) && spec.Type == server.WORKER {
+			return false
+		}
 		cs.restart.count++
-
 		if cs.restart.count == 1 {
 			cs.restart.at = time.Now()
 			restart = true
@@ -303,9 +304,9 @@ func (s *StaticSupervisor) shouldRestart(pid gotp.PID) (restart bool) {
 }
 
 type child struct {
-	supervised gotp.Supervised
+	supervised server.Supervised
 	restart    struct {
-		count uint
+		count uint64
 		at    time.Time
 	}
 }

@@ -1,15 +1,18 @@
 package supervisor
 
 import (
+	"context"
 	"fmt"
 	"time"
 
 	"github.com/Morgahl/gotp"
+	"github.com/Morgahl/gotp/server"
 )
 
 type Supervisor[I any] interface {
-	ChildSpec() gotp.ChildSpec
-	Init(I) (Flags, []gotp.Supervisable, error)
+	Context() context.Context
+	ChildSpec() server.ChildSpec
+	Init(I) (Flags, []server.Supervisable, error)
 }
 
 type Strategy uint8
@@ -56,7 +59,7 @@ func (a AutoShutdown) String() string {
 
 type Flags struct {
 	AutoShutdown
-	MaxRestarts uint
+	MaxRestarts uint64
 	ResetPeriod time.Duration
 	Shutdown    time.Duration
 	Strategy

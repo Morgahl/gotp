@@ -1,55 +1,60 @@
 package debug
 
 import (
-	"bytes"
 	"fmt"
+	"log/slog"
 	"runtime/debug"
 	"strings"
 )
 
-type Caught struct {
-	err   error
-	r     error
-	stack []string
+var (
+	recoveredTypeString = fmt.Sprintf("%T", Recovered{})
+)
+
+type Recovered struct {
+	message string
+	err     error
+	r       error
+	stack   []byte
 }
 
-func Catch(err error, r any) Caught {
+func Drop(r any) {}
+
+func Recover(r any, message string, err error) error {
+	if r == nil {
+		return err
+	}
+	rec := Recovered{message: message, err: err}
 	switch v := r.(type) {
 	case Thrown:
-		return Caught{err: err, r: fmt.Errorf("\n%s\n%s", v.Message, v.Stack), stack: v.Stack}
+		rec.r = v
 	case error:
-		return Caught{err: err, r: fmt.Errorf("panic: %w", v), stack: f(debug.Stack())}
+		rec.r = fmt.Errorf("%s: panic error: %w", message, v)
+		rec.stack = debug.Stack()
 	default:
-		return Caught{err: err, r: fmt.Errorf("panic: %v", v), stack: f(debug.Stack())}
+		rec.r = fmt.Errorf("%s: panic unknown: %v", message, v)
+		rec.stack = debug.Stack()
 	}
+	return rec
 }
 
-func (r Caught) Error() string {
+func (r Recovered) Error() string {
+	var b strings.Builder
 	if r.err == nil {
-		return fmt.Sprintf("Caught{%v, %v}", r.r, p(r.stack))
+		fmt.Fprintf(&b, "Recovered{%v", r.r)
+	} else {
+		fmt.Fprintf(&b, "Recovered{%v, %v", r.err, r.r)
 	}
-	return fmt.Sprintf("Caught{%v, %v, %v}", r.err, r.r, p(r.stack))
-}
-
-func f(stack []byte) []string {
-	lines := make([]string, 0, 10)
-	for _, line := range bytes.Split(stack, []byte{'\n'}) {
-		if len(line) > 0 {
-			lines = append(lines, string(line))
-		}
-	}
-	return lines
-}
-
-func p(stack []string) string {
-	if len(stack) == 0 {
-		return ""
-	}
-	var b bytes.Buffer
-	for _, line := range stack {
-		b.WriteByte(' ')
-		b.WriteString(strings.TrimPrefix(line, "\t"))
-		b.WriteByte('\n')
-	}
+	b.WriteByte('}')
 	return b.String()
+}
+
+func (r Recovered) LogValue() slog.Value {
+	attrs := make([]slog.Attr, 0, 3)
+	attrs = append(attrs, slog.String("type", recoveredTypeString))
+	if r.err != nil {
+		attrs = append(attrs, slog.Any("err", r.err))
+	}
+	attrs = append(attrs, slog.Any("recover", r.r))
+	return slog.GroupValue(attrs...)
 }

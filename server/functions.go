@@ -1,16 +1,33 @@
 package server
 
 import (
-	"github.com/Morgahl/gotp"
+	"time"
+
+	"github.com/Morgahl/gotp/process"
 )
 
-func Call[Cl gotp.Msg, R gotp.Msg](to, from gotp.PID, msg Cl) (resp R, replied bool) {
+const (
+	DEFAULT_TIMEOUT = 5 * time.Second
+)
+
+func Call[Cl process.Message, R process.Message, S process.Sendable](to S, from process.PID, msg Cl, timeout time.Duration) (resp R, replied bool) {
+	if timeout < 0 {
+		timeout = DEFAULT_TIMEOUT
+	}
+	var after <-chan time.Time
+	if timeout > 0 {
+		after = time.After(timeout)
+	}
 	call := CallMsg[Cl, R](from, msg)
-	gotp.Send(to, call)
-	resp, ok := <-call.resp
-	return resp, ok
+	process.Send(to, call)
+	select {
+	case resp, ok := <-call.resp:
+		return resp, ok
+	case <-after:
+		return resp, false
+	}
 }
 
-func Cast[Cl gotp.Msg](to gotp.PID, msg Cl) {
-	gotp.Send(to, CastMsg(msg))
+func Cast[Cl process.Message, S process.Sendable](to S, msg Cl) {
+	process.Send(to, CastMsg(msg))
 }
