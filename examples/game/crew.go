@@ -2,12 +2,14 @@ package game
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/rand"
 	"time"
 
 	"github.com/Morgahl/gotp"
+	"github.com/Morgahl/gotp/internal/ctx"
 	"github.com/Morgahl/gotp/process"
 	"github.com/Morgahl/gotp/server"
 )
@@ -23,7 +25,7 @@ const (
 )
 
 var _ server.Supervisable = &Crew{}
-var _ server.Serverable[gotp.Options, any, any, workItem, any] = &Crew{}
+var _ server.Serverable[gotp.Options, any, any, *workItem, any] = &Crew{}
 
 type Crew struct {
 	id    gotp.Atom
@@ -32,7 +34,7 @@ type Crew struct {
 	// Embed the server.DefaultHandlers to provide default implementations
 	// for the server.Serverable interface methods.
 	server.OptionalCallbacks[any, any]
-	server *server.Server[gotp.Options, any, any, workItem, any]
+	server *server.Server[gotp.Options, any, any, *workItem, any]
 }
 
 func NewCrew(id gotp.Atom, agent gotp.Atom) *Crew {
@@ -64,6 +66,7 @@ func (f *Crew) StartLink(linked *process.Process, opts ...process.SpawnOpt) (s s
 }
 
 func (f *Crew) Init(opts gotp.Options) (c server.Continue[any], err error) {
+	// slog.InfoContext(f.Context(), "Crew.Init", slog.Any("agent", f.agent))
 	f.server.Process().UpdateFlags(func(flags process.ProcessFlags) process.ProcessFlags {
 		flags |= process.TRAP_EXIT_FLAG
 		return flags
@@ -77,17 +80,17 @@ func (f *Crew) HandleContinue(msg any) (server.Continue[any], error) {
 		switch m {
 		case atom_GET_WORK:
 			if w, ok := GetWork(f.agent, f.server.PID()); ok {
+				// slog.DebugContext(f.Context(), "Crew.HandleContinue", slog.Any("work", w))
 				f.server.Send(server.CastMsg(w))
 				return server.NoCont[any](), nil
 			}
-			slog.InfoContext(f.Context(), "No more work available, stopping crew")
 			return server.Stop[any](process.NORMAL), nil
 		}
 	}
 	return server.NoCont[any](), nil
 }
 
-func (f *Crew) HandleCast(work workItem) (server.Continue[any], error) {
+func (f *Crew) HandleCast(work *workItem) (server.Continue[any], error) {
 	if work.need != work.done {
 		work.done++
 		load := assessWork()
@@ -113,6 +116,12 @@ func (f *Crew) HandleInfo(msg process.Message) (server.Continue[any], error) {
 }
 
 func (f *Crew) Terminate(reason error) error {
+	switch {
+	case errors.Is(reason, process.NORMAL) || errors.Is(reason, ctx.Shutdown{}):
+		slog.InfoContext(f.Context(), "Crew.Terminate", slog.Any("reason", reason))
+	default:
+		slog.ErrorContext(f.Context(), "Crew.Terminate", slog.Any("reason", reason))
+	}
 	return reason
 }
 

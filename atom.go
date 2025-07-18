@@ -15,6 +15,13 @@ func (a Atom) Error() string {
 	return a.String()
 }
 
+func (a Atom) Is(err error) bool {
+	if other, ok := err.(Atom); ok {
+		return a == other
+	}
+	return false
+}
+
 func (a Atom) LogValue() slog.Value {
 	return slog.StringValue(a.String())
 }

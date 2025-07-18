@@ -121,6 +121,10 @@ func (p *Process) PID() PID {
 	return p.pid
 }
 
+func (p *Process) Name() gotp.Atom {
+	return p.name
+}
+
 func (p *Process) UpdateFlags(fn func(ProcessFlags) ProcessFlags) {
 	p.flags = fn(p.flags)
 }
@@ -249,18 +253,19 @@ func (p *Process) deMonitor(re RequestMsg[Ref]) {
 func (p *Process) handleExitSignal(f signalFlags, e exitSig) {
 	linked := f.IsLink()
 	linkFound := p.links.contains(e.PID, e.Ref)
-	if linked && linkFound {
-		p.links.remove(e.PID, e.Ref)
-	}
 	trappingExits := p.flags.IsTrapExit()
 	samePid := e.Ref.pid == e.PID
 
+	// clean up the link if it was a link signal and the receiver is linked to the sender
+	if linked && linkFound {
+		p.links.remove(e.PID, e.Ref)
+	}
 	// Silently drop the exit signal if:
 	// - it is a link signal and the receiver is not linked to the sender
 	// - it is a normal exit and the process is not trapping exits and the sender
 	//   is not the same as the receiver
 	if (linked && !linkFound) ||
-		(e.Reason == KILL && !trappingExits && !samePid) {
+		(errors.Is(e.Reason, KILL) && !trappingExits && !samePid) {
 		return
 	}
 
@@ -268,15 +273,15 @@ func (p *Process) handleExitSignal(f signalFlags, e exitSig) {
 	// - it is not a link signal and the exit is `kill`; the receiver is killed with the `killed` reason
 	// - the process is not trapping exits, the exit reason is something other than `normal`
 	// - the exit reason is `normal` and the sender is the same as the receiver and the link flag is not set
-	if !linked && e.Reason == KILL {
+	if !linked && errors.Is(e.Reason, KILL) {
 		p.state = EXITING_STATE
 		p.exitReason = KILLED
 		return
-	} else if !trappingExits && e.Reason != NORMAL {
+	} else if !trappingExits && !errors.Is(e.Reason, NORMAL) {
 		p.state = EXITING_STATE
 		p.exitReason = e.Reason
 		return
-	} else if e.Reason == NORMAL && samePid && !linked {
+	} else if errors.Is(e.Reason, NORMAL) && samePid && !linked {
 		p.state = EXITING_STATE
 		p.exitReason = NORMAL
 		return
@@ -287,7 +292,7 @@ func (p *Process) handleExitSignal(f signalFlags, e exitSig) {
 	// - not set, and the exit reason is not `kill`
 	// - set, the receiver is linked to the sender
 	if trappingExits ||
-		(!linked && e.Reason != KILL) ||
+		(!linked && !errors.Is(e.Reason, KILL)) ||
 		(linked && linkFound) {
 		p.pushMessage(e.ToExit())
 	}

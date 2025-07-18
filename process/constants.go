@@ -2,7 +2,6 @@ package process
 
 import (
 	"strings"
-	"time"
 
 	"github.com/Morgahl/gotp"
 	"github.com/Morgahl/gotp/debug"
@@ -35,9 +34,8 @@ const (
 )
 
 const (
-	MAILBOX_SIZE = 16
-	CHANNEL_SIZE = 24
-	GC_INTERVAL  = 1 * time.Second
+	MAILBOX_SIZE = 4
+	CHANNEL_SIZE = 20
 )
 
 type ProcessFlags uint8

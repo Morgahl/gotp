@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log/slog"
 
 	"github.com/Morgahl/gotp/internal/grts"
@@ -20,5 +19,4 @@ func main() {
 		slog.Any("version", game.Game{}.Version()))
 	reason := grts.Run(game.Game{})
 	slog.Info("main: application exited", slog.Any("reason", reason))
-	fmt.Println(reason)
 }

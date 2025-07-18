@@ -8,6 +8,7 @@ import (
 
 	gotp "github.com/Morgahl/gotp"
 	"github.com/Morgahl/gotp/agent"
+	"github.com/Morgahl/gotp/internal/grts"
 	"github.com/Morgahl/gotp/process"
 	"github.com/Morgahl/gotp/server"
 )
@@ -19,24 +20,28 @@ func WorkAgent(name gotp.Atom, wanted uint64) server.Supervisable {
 	)
 }
 
-func GetWork(name gotp.Atom, from process.PID) (workItem, bool) {
-	s, ok := agent.GetAndUpdate(name, from, func(state *state) state {
+func GetWork[S process.Sendable](agnt S, from process.PID) (*workItem, bool) {
+	s, ok := agent.GetAndUpdate(agnt, from, func(state *state) state {
 		state.generate()
 		return *state
 	})
 	if !ok || !s.next {
-		return workItem{}, false
+		return nil, false
 	}
+	slog.Debug("Generated work", "wanted", s.wanted, "generated", s.generated, "processed", s.processed)
 	return s.workItem, s.next
 }
 
-func SubmitProcessedWork[S process.Sendable](agnt S, work workItem) {
+func SubmitProcessedWork[S process.Sendable](agnt S, work *workItem) {
 	agent.Update(agnt, func(state *state) {
-		slog.Info("Submitted work", "work", work)
 		state.receivedProcessed(work)
+		slog.Info("Submitted work", "wanted", state.wanted, "generated", state.generated, "processed", state.processed)
 		if state.processed == state.wanted {
-			slog.Info("All work processed", "generated", state.generated, "processed", state.processed, "wanted", state.wanted)
+			slog.Info("All work processed", "wanted", state.wanted, "generated", state.generated, "processed", state.processed)
 			agent.Stop(agnt, process.NORMAL)
+			time.AfterFunc(time.Second, func() {
+				grts.Stop(process.NORMAL)
+			})
 		}
 	})
 }
@@ -44,24 +49,24 @@ func SubmitProcessedWork[S process.Sendable](agnt S, work workItem) {
 type state struct {
 	wanted, generated, processed uint64
 	next                         bool
-	workItem                     workItem
+	workItem                     *workItem
 }
 
 func (s *state) generate() {
 	if s.generated >= s.wanted {
-		s.workItem = workItem{}
+		s.workItem = nil
 		s.next = false
 		return
 	}
 	s.generated++
 	s.next = true
-	s.workItem = workItem{
+	s.workItem = &workItem{
 		id:   gotp.Atom(fmt.Sprintf("work-%d", s.generated)),
 		need: uint64(rand.Intn(56) + 5),
 	}
 }
 
-func (s *state) receivedProcessed(work workItem) {
+func (s *state) receivedProcessed(work *workItem) {
 	if work.need == work.done {
 		s.processed++
 	}

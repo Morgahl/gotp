@@ -85,7 +85,8 @@ func (f Game) Start(st application.StartType) (server.Supervisable, error) {
 		// return NewTeam("teams", supervisor.Flags{}, buildTeams("quartermaster", greekList[:10], namesList[:10])...), nil
 		// return NewTeam("teams", supervisor.Flags{}, buildTeams("quartermaster", greekList, namesList)...), nil
 		// return NewTeam("teams", supervisor.Flags{}, buildTeams("quartermaster", greekGreekList, greekNamesList)...), nil
-		return NewTeam("teams", supervisor.Flags{}, buildTeams("quartermaster", greekGreekList, greekNamesList)...), nil
+		return NewTeam("teams", supervisor.Flags{}, buildTeams("quartermaster", greekGreekGreekList[:len(greekGreekGreekList)/10], greekNamesList)...), nil
+		// return NewTeam("teams", supervisor.Flags{}, buildTeams("quartermaster", greekGreekGreekList, greekNamesList)...), nil
 	} else if _, ok := st.IsFailover(); ok {
 		return nil, errors.New("failover not supported in Game")
 	} else if _, ok := st.IsTakeover(); ok {
