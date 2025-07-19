@@ -4,31 +4,21 @@ import (
 	"context"
 	"errors"
 	"slices"
-	"sync"
-	"time"
 
 	"github.com/Morgahl/gotp"
 	"github.com/Morgahl/gotp/debug"
 )
 
 type Startable interface {
-	Start(opts ...SpawnOpt) (Started, error)
+	Start(opts ...SpawnOpt) (PID, error)
 }
 
-type Started interface {
-	PID() PID
-	Send(Message)
-	SendAfter(Message, time.Duration) *time.Timer
-	Exit(reason error)
-}
+type RunFn func(Context) error
 
-type RunFn func(*Process) error
-
-type Process struct {
+type process struct {
 	pid             PID
 	name            gotp.Atom
 	flags           ProcessFlags
-	runFn           RunFn
 	state           processState
 	exitReason      error
 	context         context.Context
@@ -36,44 +26,20 @@ type Process struct {
 	deregPidHandle  func()
 	deregNameHandle func()
 
-	// message passing structures; must hold p.mailboxMu to access or modify these as appropriate
-	mailboxMu  sync.Mutex
+	// message passing structures
 	mailbox    []Message
 	signalChan chan signal[Message]
 
-	// bookkeeping structures; must hold p.mailboxMu to access or modify these as appropriate
+	// bookkeeping structures
 	messageSkips []int
 
-	// process management structures; must hold p.mailboxMu to access or modify these as appropriate
-	groupLeader Ref
-	links       refMap
-	monitors    refMap
+	// process management structures
+	links    refMap
+	monitors refMap
 }
 
-func Spawn(fn RunFn, opts ...SpawnOpt) *Process {
-	p := build(opts)
-	p.runFn = fn
-	return p
-}
-
-func SpawnLink(fn RunFn, linked *Process, opts ...SpawnOpt) *Process {
-	linkOpts := []SpawnOpt{
-		Linked(linked),
-		InheritFrom(linked),
-	}
-	return Spawn(fn, append(linkOpts, opts...)...)
-}
-
-func SpawnMonitor(fn RunFn, monitor *Process, opts ...SpawnOpt) *Process {
-	monitorOpts := []SpawnOpt{
-		Monitored(monitor),
-		InheritFrom(monitor),
-	}
-	return Spawn(fn, append(monitorOpts, opts...)...)
-}
-
-func build(opts []SpawnOpt) *Process {
-	p := &Process{
+func build(opts []SpawnOpt) *process {
+	p := &process{
 		pid:        nextPID(),
 		links:      newRefMap(),
 		monitors:   newRefMap(),
@@ -95,48 +61,29 @@ func build(opts []SpawnOpt) *Process {
 	return p
 }
 
-func (p *Process) Start() {
-	switch p.state {
-	case STARTED_STATE, EXITING_STATE, EXITED_STATE:
-		debug.Throw("process.Start: cannot start process in state %s", p.state)
-	case STARTING_STATE:
-		p.state = STARTED_STATE
-		p.deregPidHandle = registerPID(p)
-		if p.name != "" {
-			p.deregNameHandle = registerNamed(p.name, p.Ref())
-		}
-		go p.run()
+func Spawn(fn RunFn, opts ...SpawnOpt) Ref {
+	p := build(opts)
+	p.state = STARTED_STATE
+	ref := newRef(p)
+	p.deregPidHandle = registerPID(p.pid, ref)
+	if p.name != "" {
+		p.deregNameHandle = registerNamed(p.name, ref)
 	}
+	go p.run(fn)
+	return ref
 }
 
-func (p *Process) Ref() Ref {
-	return newRef(p)
+func SpawnLink(fn RunFn, linked Ref, opts ...SpawnOpt) Ref {
+	return Spawn(fn, append([]SpawnOpt{Link(linked)}, opts...)...)
 }
 
-func (p *Process) Context() context.Context {
-	return p.context
+func SpawnMonitor(fn RunFn, monitor Ref, opts ...SpawnOpt) Ref {
+	return Spawn(fn, append([]SpawnOpt{Monitored(monitor)}, opts...)...)
 }
 
-func (p *Process) PID() PID {
-	return p.pid
-}
-
-func (p *Process) Name() gotp.Atom {
-	return p.name
-}
-
-func (p *Process) UpdateFlags(fn func(ProcessFlags) ProcessFlags) {
-	p.flags = fn(p.flags)
-}
-
-func (p *Process) Exit(reason error) {
-	p.send(exitSignal(no_FLAGS, p.pid, p.Ref(), reason))
-}
-
-func (p *Process) run() {
+func (p *process) run(runFn RunFn) {
 	defer func() {
-		p.exitReason = debug.Recover(recover(), "Process.run", p.exitReason)
-		p.mailboxMu.Lock()
+		p.exitReason = debug.Recover(recover(), "process.run", p.exitReason)
 		if p.deregNameHandle != nil {
 			p.deregNameHandle()
 			p.deregNameHandle = nil
@@ -154,29 +101,28 @@ func (p *Process) run() {
 		close(p.signalChan)
 		p.signalChan = nil
 		p.state = EXITED_STATE
-		p.mailboxMu.Unlock()
 	}()
-	if err := p.runFn(p); err != nil {
+	if err := runFn(newContext(p)); err != nil {
 		p.exitReason = errors.Join(p.exitReason, err)
 	}
 }
 
-func (p *Process) send(s signal[Message]) {
+func (p *process) send(s signal[Message]) {
 	defer func() { recover() }()
 	p.signalChan <- s
 }
 
-func (p *Process) maybeGarbageCollect() {
+func (p *process) maybeGarbageCollect() {
 	if p.shouldGarbageCollect() {
 		p.garbageCollect()
 	}
 }
 
-func (p *Process) shouldGarbageCollect() bool {
+func (p *process) shouldGarbageCollect() bool {
 	return len(p.messageSkips)*4 > len(p.mailbox)
 }
 
-func (p *Process) garbageCollect() {
+func (p *process) garbageCollect() {
 	p.links.garbageCollect()
 	p.monitors.garbageCollect()
 
@@ -213,44 +159,43 @@ func (p *Process) garbageCollect() {
 }
 
 // this must always be called while the stateLock is at least read-locked and the mailboxLock is write-locked
-func (p *Process) pushMessage(m Message) {
+func (p *process) pushMessage(m Message) {
 	if p.state == STARTED_STATE {
 		p.mailbox = append(p.mailbox, m)
 	}
 }
 
 // this must always be called while the stateLock is at least read-locked and the mailboxLock is write-locked
-func (p *Process) linkRequest(re RequestMsg[Ref]) {
+func (p *process) linkRequest(re RequestMsg[Ref]) {
 	p.links.push(re.From, re.Message)
-	ref := p.Ref()
 	re.Ref.send(linkReplySignal(ReplyMsg[Ref]{
 		From:    p.pid,
-		Ref:     ref,
+		Ref:     newRef(p),
 		Message: re.Message,
 	}))
 }
 
-func (p *Process) linkReply(re ReplyMsg[Ref]) {
+func (p *process) linkReply(re ReplyMsg[Ref]) {
 	p.links.push(re.From, re.Message)
 }
 
 // this must always be called while the stateLock is at least read-locked and the mailboxLock is write-locked
-func (p *Process) unlink(re RequestMsg[Ref]) {
+func (p *process) unlink(re RequestMsg[Ref]) {
 	p.links.remove(re.From, re.Message)
 }
 
 // this must always be called while the stateLock is at least read-locked and the mailboxLock is write-locked
-func (p *Process) monitor(re RequestMsg[Ref]) {
+func (p *process) monitor(re RequestMsg[Ref]) {
 	p.monitors.push(re.From, re.Message)
 }
 
 // this must always be called while the stateLock is at least read-locked and the mailboxLock is write-locked
-func (p *Process) deMonitor(re RequestMsg[Ref]) {
+func (p *process) deMonitor(re RequestMsg[Ref]) {
 	p.monitors.remove(re.From, re.Message)
 }
 
 // this must always be called while the stateLock is at least read-locked and the mailboxLock is write-locked
-func (p *Process) handleExitSignal(f signalFlags, e exitSig) {
+func (p *process) handleExitSignal(f signalFlags, e exitSig) {
 	linked := f.IsLink()
 	linkFound := p.links.contains(e.PID, e.Ref)
 	trappingExits := p.flags.IsTrapExit()
@@ -299,26 +244,19 @@ func (p *Process) handleExitSignal(f signalFlags, e exitSig) {
 }
 
 // this must always be called while the stateLock is at least read-locked and the mailboxLock is write-locked
-func (p *Process) down(down DownMsg) {
+func (p *process) down(down DownMsg) {
 	if p.monitors.contains(down.From, down.Ref) {
 		p.pushMessage(down)
 	}
 }
 
 // this must always be called while the stateLock is at least read-locked and the mailboxLock is write-locked
-func (p *Process) setGroupLeader(re Ref) {
-	// yes we can be set to ourselves by design, for instance the top supervisor in the
-	// [gotp/applicaiton.Application.Start] function will set itself as its own group leader.
-	p.groupLeader = re
-}
-
-// this must always be called while the stateLock is at least read-locked and the mailboxLock is write-locked
-func (p *Process) aliveRequest(req RequestMsg[Message]) {
+func (p *process) aliveRequest(req RequestMsg[Message]) {
 	var err error
 	if p.state != STARTED_STATE {
 		err = errors.New("process not started")
 	}
-	sig := aliveReplySignal(req, p.Ref(), err)
+	sig := aliveReplySignal(req, newRef(p), err)
 	if req.Ref.IsValid() {
 		req.Ref.send(sig)
 	} else {
@@ -327,12 +265,12 @@ func (p *Process) aliveRequest(req RequestMsg[Message]) {
 }
 
 // this must always be called while the stateLock is at least read-locked and the mailboxLock is write-locked
-func (p *Process) aliveReply(r ReplyMsg[error]) {
+func (p *process) aliveReply(r ReplyMsg[error]) {
 	p.pushMessage(r)
 }
 
 // handleSignal is always called from a functions that has the mailboxLock write-locked as well as the stateLock read-locked.
-func (p *Process) handleSignal(s signal[Message]) {
+func (p *process) handleSignal(s signal[Message]) {
 	switch p.state {
 	case STARTED_STATE:
 		switch s._type {
@@ -361,9 +299,6 @@ func (p *Process) handleSignal(s signal[Message]) {
 		case DOWN_SIGNAL:
 			down := debug.AssertType[DownMsg](s.message, "process.handleSignal: expected exit for DOWN_SIGNAL, got %T", s.message)
 			p.down(down)
-		case GROUP_LEADER_SIGNAL:
-			re := debug.AssertType[Ref](s.message, "process.handleSignal: expected Ref for GROUP_LEADER_SIGNAL, got %T", s.message)
-			p.setGroupLeader(re)
 		case ALIVE_REQUEST_SIGNAL:
 			req := debug.AssertType[RequestMsg[Message]](s.message, "process.handleSignal: expected message for ALIVE_REQUEST_SIGNAL, got %T", s.message)
 			p.aliveRequest(req)

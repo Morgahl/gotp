@@ -8,14 +8,18 @@ import (
 
 type Ref struct {
 	pid     PID
-	procRef weak.Pointer[Process]
+	procRef weak.Pointer[process]
 }
 
-func newRef(p *Process) Ref {
+func newRef(p *process) Ref {
 	return Ref{
 		pid:     p.pid,
 		procRef: weak.Make(p),
 	}
+}
+
+func (r Ref) PID() PID {
+	return r.pid
 }
 
 func (r Ref) IsValid() bool {

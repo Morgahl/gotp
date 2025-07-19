@@ -1,0 +1,247 @@
+package static
+
+import (
+	"errors"
+	"fmt"
+	"slices"
+	"time"
+
+	"github.com/Morgahl/gotp"
+	"github.com/Morgahl/gotp/gen_server"
+	"github.com/Morgahl/gotp/process"
+	"github.com/Morgahl/gotp/supervisor"
+)
+
+var _ gen_server.GenServer[gotp.Options, process.Message, process.Message, process.Message, process.Message] = &server{}
+
+type server struct {
+	sup      supervisor.Supervisor[gotp.Options]
+	options  supervisor.Options
+	specs    []supervisor.ChildSpec
+	childIDs map[gotp.Atom]process.PID
+	children map[process.PID]child
+}
+
+func (s *server) ChildSpec() supervisor.ChildSpec {
+	return s.sup.ChildSpec()
+}
+
+func (s *server) Init(pctx process.Context, opts gotp.Options) (cont gen_server.Continue[process.Message], err error) {
+	pctx.TrapExit(true)
+
+	var options supervisor.Options
+	var children []supervisor.Supervisable
+	if options, children, err = s.sup.Init(pctx, opts); err != nil {
+		return gen_server.NoCont[process.Message](), err
+	}
+
+	s.options = options.ApplyDefaults()
+	s.specs = make([]supervisor.ChildSpec, 0, len(children))
+	s.childIDs = make(map[gotp.Atom]process.PID, len(children))
+	s.children = make(map[process.PID]child, len(children))
+	for _, child := range children {
+		spec := child.ChildSpec()
+		s.specs = append(s.specs, spec)
+		if err := s.startChild(pctx, spec); err != nil {
+			return gen_server.NoCont[process.Message](), err
+		}
+	}
+
+	return gen_server.NoCont[process.Message](), nil
+}
+
+func (s *server) HandleCall(pctx process.Context, msg process.Message, _ process.PID) (resp gen_server.Response[process.Message], cont gen_server.Continue[process.Message], err error) {
+	switch m := msg.(type) {
+	// starting child
+	case supervisor.ChildSpec:
+		if pid, ok := s.findChild(m); ok {
+			return gen_server.Reply[process.Message](supervisor.NewAlreadyStarted(pid)), gen_server.NoCont[process.Message](), nil
+		} else if err := s.startChild(pctx, m); err == nil {
+			return gen_server.Reply[process.Message](pid), gen_server.NoCont[process.Message](), nil
+		} else {
+			return gen_server.Reply[process.Message](err), gen_server.NoCont[process.Message](), nil
+		}
+
+	// stopping child
+	case process.PID:
+		if child, ok := s.findChildByPID(m); !ok {
+			return gen_server.Reply[process.Message](false), gen_server.NoCont[process.Message](), nil
+		} else {
+			child.ref.Send(process.ExitMsg{PID: m, Reason: process.KILL})
+			removed := s.deregisterChild(m)
+			return gen_server.Reply[process.Message](removed), gen_server.NoCont[process.Message](), nil
+		}
+	}
+
+	panic(fmt.Sprintf("StaticSupervisor.HandleCall: unknown message type %T", msg))
+}
+
+func (s *server) HandleCast(pctx process.Context, msg process.Message) (cont gen_server.Continue[process.Message], err error) {
+	return gen_server.NoCont[process.Message](), nil
+}
+
+func (s *server) HandleContinue(pctx process.Context, arg process.Message) (cont gen_server.Continue[process.Message], err error) {
+	return gen_server.NoCont[process.Message](), nil
+}
+
+func (s *server) HandleInfo(pctx process.Context, info process.Message) (cont gen_server.Continue[process.Message], err error) {
+	defer func() {
+		if r := recover(); r != nil {
+		}
+	}()
+	switch info := info.(type) {
+	case process.ExitMsg:
+		if info.PID == pctx.PID() {
+			return gen_server.NoCont[process.Message](), info.Reason
+		}
+
+		child, ok := s.findChildByPID(info.PID)
+		if !ok {
+			return gen_server.NoCont[process.Message](), nil
+		}
+		// need to call this here as the deregisterChild will remove the child from the map
+		shouldRestart := s.shouldRestart(info.PID, info.Reason)
+		if !s.deregisterChild(info.PID) {
+			return gen_server.NoCont[process.Message](), nil
+		} else if !shouldRestart {
+			return gen_server.NoCont[process.Message](), nil
+		}
+		if err := s.startChild(pctx, child.spec); err != nil {
+			// TODO: track this timer somewhere?
+			// TODO: also this likely need to be a computed reset for the after timer
+			_ = pctx.SendAfter(gen_server.CallMsg[process.Message, process.Message](pctx.PID(), child), s.options.ResetPeriod)
+			return gen_server.NoCont[process.Message](), err
+		} else {
+			return gen_server.NoCont[process.Message](), nil
+		}
+	}
+	return gen_server.NoCont[process.Message](), nil
+}
+
+func (s *server) Terminate(pctx process.Context, reason error) (newReson error) {
+	children := make([]child, 0, len(s.children))
+	for _, c := range s.children {
+		children = append(children, c)
+	}
+
+	// TODO: ultimately we want to maintin the processes as a stack and reap them in reverse order
+	// TODO: for now, we sort them by PID in descending order to ensure that the most recently started
+	// TODO: processes are terminated first
+	// TODO: we may be able to borrow lazy GC practices from the process.Process's mailbox cleanup to
+	// TODO: avoid the need to sort the children here as well as keep an ordered stack of children
+	// TODO: for the correct one_for_one, one_for_all, and rest_for_one handling
+	slices.SortFunc(children, func(i, j child) int {
+		return process.ComparePID(i.ref.PID(), j.ref.PID()) * -1
+	})
+
+	for _, child := range children {
+		pid := child.ref.PID()
+		timeout := child.spec.Shutdown
+		child.ref.Send(process.ExitMsg{PID: pid, Reason: reason})
+
+		if msg, ok, err := process.ReceiveWithTimeout[process.ExitMsg](pctx, timeout); err != nil {
+			return err
+		} else if ok {
+			s.deregisterChild(msg.PID)
+			continue
+		} else {
+			s.deregisterChild(msg.PID)
+		}
+	}
+	return reason
+}
+
+func (s *server) findChild(spec supervisor.ChildSpec) (process.PID, bool) {
+	for _, child := range s.children {
+		if child.spec.Equals(spec) {
+			pid := child.ref.PID()
+			return pid, !pid.IsZero()
+		}
+	}
+	return process.PIDZero(), false
+}
+
+func (s *server) findChildByPID(pid process.PID) (child child, ok bool) {
+	if pid == process.PIDZero() {
+		return child, false
+	}
+	child, ok = s.children[pid]
+	return child, ok
+}
+
+func (s *server) startChild(pctx process.Context, spec supervisor.ChildSpec) error {
+	ref, err := spec.Start(process.Link(pctx.Ref()))
+	if err != nil {
+		return err
+	}
+	return s.registerChild(spec, ref)
+}
+
+func (s *server) registerChild(spec supervisor.ChildSpec, ref process.Ref) error {
+	pid := ref.PID()
+	if _, found := s.children[pid]; found {
+		// TODO: this needs to be a well defined error type
+		return fmt.Errorf("child with PID %s already registered", pid)
+	}
+	s.children[pid] = child{spec: spec, ref: ref}
+	if id := spec.ID; id != "" {
+		s.childIDs[id] = pid
+	}
+	return nil
+}
+
+func (s *server) deregisterChild(pid process.PID) (deleted bool) {
+	if child, ok := s.children[pid]; ok {
+		if id := child.spec.ID; id != "" {
+			delete(s.childIDs, id)
+		}
+		delete(s.children, pid)
+		deleted = true
+	}
+	return deleted
+}
+
+// shuouldRestart checks if the child should be restarted based on the restart strategy; assumes that the PID is not the supervisor's PID
+func (s *server) shouldRestart(pid process.PID, reason error) (restart bool) {
+	cs, ok := s.children[pid]
+	if !ok {
+		return false
+	}
+	spec := cs.spec
+	switch spec.Restart {
+	case supervisor.TEMPORARY, supervisor.TRANSIENT:
+		return false
+	case supervisor.PERMANENT:
+		if errors.Is(reason, process.KILL) || errors.Is(reason, process.NORMAL) && spec.Type == supervisor.WORKER {
+			return false
+		}
+		cs.restart.count++
+		if cs.restart.count == 1 {
+			cs.restart.at = time.Now()
+			restart = true
+		} else if cs.restart.count <= s.options.MaxRestarts {
+			restart = true
+		} else if time.Since(cs.restart.at) > s.options.ResetPeriod {
+			cs.restart.count = 1
+			cs.restart.at = time.Now()
+			restart = true
+		} else {
+			restart = false
+		}
+
+		if restart {
+			s.children[pid] = cs
+		}
+	}
+
+	return restart
+}
+
+type child struct {
+	spec    supervisor.ChildSpec
+	ref     process.Ref
+	restart struct {
+		count uint64
+		at    time.Time
+	}
+}

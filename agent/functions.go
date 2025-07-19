@@ -1,42 +1,68 @@
 package agent
 
 import (
+	"github.com/Morgahl/gotp"
+	"github.com/Morgahl/gotp/gen_server"
 	"github.com/Morgahl/gotp/process"
-	"github.com/Morgahl/gotp/server"
+	"github.com/Morgahl/gotp/supervisor"
 )
 
-func Start[T any](initFn InitFn[T], opts ...process.SpawnOpt) (*server.Server[any, any, T, any, any], error) {
-	s, err := New(initFn).Start(opts...)
-	if err != nil {
-		return nil, err
-	}
-	return s.(*server.Server[any, any, T, any, any]), nil
+func Start[T any](initFn InitFn[T], opts ...process.SpawnOpt) (process.Ref, error) {
+	return gen_server.Start(&Agent[T]{initFn: initFn}, initFn, opts...)
 }
 
-func StartLink[T any](initFn InitFn[T], linked *process.Process, opts ...process.SpawnOpt) (*server.Server[any, any, T, any, any], error) {
-	s, err := New(initFn).StartLink(linked, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return s.(*server.Server[any, any, T, any, any]), nil
+func StartLink[T any](initFn InitFn[T], linked process.Ref, opts ...process.SpawnOpt) (process.Ref, error) {
+	return gen_server.StartLink(&Agent[T]{initFn: initFn}, initFn, linked, opts...)
 }
 
 func Cast[T any, S process.Sendable](to S, msg UpdateFn[T]) {
-	server.Cast[process.Message](to, msg)
+	gen_server.Cast[process.Message](to, msg)
+}
+
+func ContextCast[T any, S process.Sendable](pctx process.Context, to S, msg UpdateFn[T]) {
+	gen_server.ContextCast[process.Message, S](to, pctx, msg)
 }
 
 func Get[T any, S process.Sendable](to S, from process.PID, msg GetFn[T]) (T, bool) {
-	return server.Call[process.Message, T](to, from, msg, 0)
+	return gen_server.Call[process.Message, T](to, from, msg, 0)
+}
+
+func ContextGet[T any, S process.Sendable](pctx process.Context, to S, msg GetFn[T]) (T, bool) {
+	return gen_server.ContextCall[process.Message, T, S](to, pctx, msg, 0)
 }
 
 func GetAndUpdate[T any, S process.Sendable](to S, from process.PID, msg GetAndUpdateFn[T]) (T, bool) {
-	return server.Call[process.Message, T](to, from, msg, 0)
+	return gen_server.Call[process.Message, T](to, from, msg, 0)
+}
+
+func ContextGetAndUpdate[T any, S process.Sendable](pctx process.Context, to S, msg GetAndUpdateFn[T]) (T, bool) {
+	return gen_server.ContextCall[process.Message, T, S](to, pctx, msg, 0)
 }
 
 func Update[T any, S process.Sendable](to S, msg UpdateFn[T]) {
-	server.Cast[process.Message](to, msg)
+	gen_server.Cast[process.Message](to, msg)
+}
+
+func ContextUpdate[T any, S process.Sendable](pctx process.Context, to S, msg UpdateFn[T]) {
+	gen_server.ContextCast[process.Message, S](to, pctx, msg)
 }
 
 func Stop[S process.Sendable](to S, reason error) {
-	process.Send(to, server.StopMsg(reason))
+	process.Send(to, gen_server.StopMsg(reason))
+}
+
+func ContextStop[S process.Sendable](pctx process.Context, to S, reason error) {
+	process.ContextSend(pctx, to, gen_server.StopMsg(reason))
+}
+
+func ChildSpec[T any](InitFn InitFn[T], sopts ...process.SpawnOpt) supervisor.ChildSpec {
+	return supervisor.ChildSpec{
+		Restart:  supervisor.PERMANENT,
+		Shutdown: gotp.DEFAULT_SHUTDOWN,
+		Type:     supervisor.WORKER,
+		// Significant: true,
+		Start: func(opts ...process.SpawnOpt) (process.Ref, error) {
+			return gen_server.Start(&Agent[T]{initFn: InitFn}, InitFn, append(sopts, opts...)...)
+		},
+	}
 }

@@ -6,22 +6,34 @@ import (
 	"math/rand"
 	"time"
 
-	gotp "github.com/Morgahl/gotp"
+	"github.com/Morgahl/gotp"
 	"github.com/Morgahl/gotp/agent"
 	"github.com/Morgahl/gotp/internal/grts"
 	"github.com/Morgahl/gotp/process"
-	"github.com/Morgahl/gotp/server"
+	"github.com/Morgahl/gotp/supervisor"
 )
 
-func WorkAgent(name gotp.Atom, wanted uint64) server.Supervisable {
-	return agent.New(
-		func() *state { return &state{wanted: wanted} },
-		process.Named(name),
+type WorkAgent struct {
+	name   gotp.Atom
+	wanted uint64
+}
+
+func NewWorkAgent(name gotp.Atom, wanted uint64) *WorkAgent {
+	return &WorkAgent{
+		name:   name,
+		wanted: wanted,
+	}
+}
+
+func (w *WorkAgent) ChildSpec() supervisor.ChildSpec {
+	return agent.ChildSpec(
+		func() *state { return &state{wanted: w.wanted} },
+		process.Named(w.name),
 	)
 }
 
-func GetWork[S process.Sendable](agnt S, from process.PID) (*workItem, bool) {
-	s, ok := agent.GetAndUpdate(agnt, from, func(state *state) state {
+func ContextGetWork[S process.Sendable](pctx process.Context, agnt S, from process.PID) (*workItem, bool) {
+	s, ok := agent.ContextGetAndUpdate(pctx, agnt, func(state *state) state {
 		state.generate()
 		return *state
 	})
@@ -32,18 +44,24 @@ func GetWork[S process.Sendable](agnt S, from process.PID) (*workItem, bool) {
 	return s.workItem, s.next
 }
 
-func SubmitProcessedWork[S process.Sendable](agnt S, work *workItem) {
-	agent.Update(agnt, func(state *state) {
+func ContextSubmitProcessedWork[S process.Sendable](pctx process.Context, agnt S, work *workItem) (*workItem, bool) {
+	s, ok := agent.ContextGetAndUpdate(pctx, agnt, func(state *state) state {
 		state.receivedProcessed(work)
-		slog.Info("Submitted work", "wanted", state.wanted, "generated", state.generated, "processed", state.processed)
+		slog.InfoContext(pctx.Context(), "Submitted work", slog.Uint64("wanted", state.wanted), slog.Uint64("generated", state.generated), slog.Uint64("processed", state.processed))
 		if state.processed == state.wanted {
-			slog.Info("All work processed", "wanted", state.wanted, "generated", state.generated, "processed", state.processed)
-			agent.Stop(agnt, process.NORMAL)
+			slog.InfoContext(pctx.Context(), "All work processed", slog.Uint64("wanted", state.wanted), slog.Uint64("generated", state.generated), slog.Uint64("processed", state.processed))
+			agent.ContextStop(pctx, agnt, process.NORMAL)
 			time.AfterFunc(time.Second, func() {
 				grts.Stop(process.NORMAL)
 			})
 		}
+		return *state
 	})
+	if !ok || !s.next {
+		return nil, false
+	}
+	slog.Debug("Generated work", "wanted", s.wanted, "generated", s.generated, "processed", s.processed)
+	return s.workItem, s.next
 }
 
 type state struct {
@@ -69,6 +87,7 @@ func (s *state) generate() {
 func (s *state) receivedProcessed(work *workItem) {
 	if work.need == work.done {
 		s.processed++
+		s.generate()
 	}
 }
 

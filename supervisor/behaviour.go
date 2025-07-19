@@ -1,18 +1,20 @@
 package supervisor
 
 import (
-	"context"
 	"fmt"
 	"time"
 
 	"github.com/Morgahl/gotp"
-	"github.com/Morgahl/gotp/server"
+	"github.com/Morgahl/gotp/process"
 )
 
+type Supervisable interface {
+	ChildSpec() ChildSpec
+}
+
 type Supervisor[I any] interface {
-	Context() context.Context
-	ChildSpec() server.ChildSpec
-	Init(I) (Flags, []server.Supervisable, error)
+	Supervisable
+	Init(process.Context, I) (Options, []Supervisable, error)
 }
 
 type Strategy uint8
@@ -57,7 +59,7 @@ func (a AutoShutdown) String() string {
 	}
 }
 
-type Flags struct {
+type Options struct {
 	AutoShutdown
 	MaxRestarts uint64
 	ResetPeriod time.Duration
@@ -65,13 +67,13 @@ type Flags struct {
 	Strategy
 }
 
-func (f Flags) String() string {
+func (f Options) String() string {
 	return fmt.Sprintf(
 		"Flags{AutoShutdown: %s, MaxRestarts: %d, ResetPeriod: %s, Shutdown: %s, Strategy: %s}",
 		f.AutoShutdown, f.MaxRestarts, f.ResetPeriod, f.Shutdown, f.Strategy)
 }
 
-func (f Flags) ApplyDefaults() Flags {
+func (f Options) ApplyDefaults() Options {
 	if f.MaxRestarts <= 0 {
 		f.MaxRestarts = 3
 	}

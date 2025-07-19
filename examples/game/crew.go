@@ -1,7 +1,6 @@
 package game
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -9,9 +8,10 @@ import (
 	"time"
 
 	"github.com/Morgahl/gotp"
+	"github.com/Morgahl/gotp/gen_server"
 	"github.com/Morgahl/gotp/internal/ctx"
 	"github.com/Morgahl/gotp/process"
-	"github.com/Morgahl/gotp/server"
+	"github.com/Morgahl/gotp/supervisor"
 )
 
 const (
@@ -20,107 +20,108 @@ const (
 	MID_HIGH_DURATION = 5 * time.Second
 	MAX_DURATION      = 8 * time.Second
 
-	atom_GET_WORK    gotp.Atom = "get_work"
-	atom_SUBMIT_WORK gotp.Atom = "submit_work"
+	atom_GET_WORK gotp.Atom = "get_work"
 )
 
-var _ server.Supervisable = &Crew{}
-var _ server.Serverable[gotp.Options, any, any, *workItem, any] = &Crew{}
+var _ supervisor.Supervisable = &Crew{}
+var _ gen_server.GenServer[any, any, any, *workItem, any] = &Crew{}
+
+func buildCrew(workAgent gotp.Atom, team gotp.Atom, crewList []gotp.Atom) []supervisor.Supervisable {
+	var crew []supervisor.Supervisable
+	for _, c := range crewList {
+		crew = append(crew, NewCrew(team+"_"+c, workAgent))
+	}
+	return crew
+}
 
 type Crew struct {
 	id    gotp.Atom
 	agent gotp.Atom
+	work  *workItem
 
-	// Embed the server.DefaultHandlers to provide default implementations
-	// for the server.Serverable interface methods.
-	server.OptionalCallbacks[any, any]
-	server *server.Server[gotp.Options, any, any, *workItem, any]
+	// Embed the gen_server.DefaultHandlers to provide default implementations
+	// for the gen_server.Serverable interface methods.
+	gen_server.OptionalCallbacks[any, any]
 }
 
 func NewCrew(id gotp.Atom, agent gotp.Atom) *Crew {
 	c := Crew{id: id, agent: agent}
-	c.server = server.New(&c, nil)
 	return &c
 }
 
-func (f *Crew) Context() context.Context {
-	return f.server.Process().Context()
-}
-
-func (f *Crew) ChildSpec() server.ChildSpec {
-	return server.ChildSpec{
-		ID:        f.id,
-		Restart:   server.TRANSIENT,
-		Shutdown:  gotp.DEFAULT_SHUTDOWN,
-		Type:      server.WORKER,
-		SpawnOpts: []process.SpawnOpt{process.Named(f.id)},
+func (f *Crew) ChildSpec() supervisor.ChildSpec {
+	return supervisor.ChildSpec{
+		ID:       f.id,
+		Restart:  supervisor.TRANSIENT,
+		Shutdown: gotp.DEFAULT_SHUTDOWN,
+		Type:     supervisor.WORKER,
+		Start: func(opts ...process.SpawnOpt) (process.Ref, error) {
+			return gen_server.Start(f, nil, append([]process.SpawnOpt{process.Named(f.id)}, opts...)...)
+		},
 	}
 }
 
-func (f *Crew) Start(opts ...process.SpawnOpt) (process.Started, error) {
-	return f.server.Start(opts...)
+func (f *Crew) Init(pctx process.Context, _ any) (c gen_server.Continue[any], err error) {
+	slog.DebugContext(pctx.Context(), "Crew.Init", slog.Any("agent", f.agent))
+	pctx.TrapExit(true)
+	return gen_server.Cont[any](atom_GET_WORK), nil
 }
 
-func (f *Crew) StartLink(linked *process.Process, opts ...process.SpawnOpt) (s server.Supervised, err error) {
-	return f.server.StartLink(linked, opts...)
-}
-
-func (f *Crew) Init(opts gotp.Options) (c server.Continue[any], err error) {
-	// slog.InfoContext(f.Context(), "Crew.Init", slog.Any("agent", f.agent))
-	f.server.Process().UpdateFlags(func(flags process.ProcessFlags) process.ProcessFlags {
-		flags |= process.TRAP_EXIT_FLAG
-		return flags
-	})
-	return server.Cont[any](atom_GET_WORK), nil
-}
-
-func (f *Crew) HandleContinue(msg any) (server.Continue[any], error) {
+func (f *Crew) HandleContinue(pctx process.Context, msg any) (gen_server.Continue[any], error) {
 	switch m := msg.(type) {
 	case gotp.Atom:
 		switch m {
 		case atom_GET_WORK:
-			if w, ok := GetWork(f.agent, f.server.PID()); ok {
-				// slog.DebugContext(f.Context(), "Crew.HandleContinue", slog.Any("work", w))
-				f.server.Send(server.CastMsg(w))
-				return server.NoCont[any](), nil
+			if f.work == nil {
+				if w, ok := ContextGetWork(pctx, f.agent, pctx.PID()); ok {
+					f.work = w
+					pctx.Send(gen_server.CastMsg(w))
+					return gen_server.NoCont[any](), nil
+				}
 			}
-			return server.Stop[any](process.NORMAL), nil
+			work := f.work
+			f.work = nil
+			if work, ok := ContextSubmitProcessedWork(pctx, f.agent, work); ok {
+				f.work = work
+				pctx.Send(gen_server.CastMsg(work))
+				return gen_server.NoCont[any](), nil
+			}
+			return gen_server.Stop[any](process.NORMAL), nil
 		}
 	}
-	return server.NoCont[any](), nil
+	return gen_server.NoCont[any](), nil
 }
 
-func (f *Crew) HandleCast(work *workItem) (server.Continue[any], error) {
-	if work.need != work.done {
+func (f *Crew) HandleCast(pctx process.Context, work *workItem) (gen_server.Continue[any], error) {
+	if f.work.id == work.id && work.need != work.done {
 		work.done++
 		load := assessWork()
 		work.taken += load
-		f.server.SendAfter(server.CastMsg(work), load)
-		return server.NoCont[any](), nil
+		pctx.SendAfter(gen_server.CastMsg(work), load)
+		return gen_server.NoCont[any](), nil
 	}
 
-	SubmitProcessedWork(f.agent, work)
-	return server.Cont[any](atom_GET_WORK), nil
+	return gen_server.Cont[any](atom_GET_WORK), nil
 }
 
-func (f *Crew) HandleInfo(msg process.Message) (server.Continue[any], error) {
+func (f *Crew) HandleInfo(pctx process.Context, msg process.Message) (gen_server.Continue[any], error) {
 	switch m := msg.(type) {
 	case process.ExitMsg:
-		if m.PID == f.server.PID() {
-			return server.Stop[any](m.Reason), nil
+		if m.PID == pctx.PID() {
+			return gen_server.Stop[any](m.Reason), nil
 		}
 	default:
-		return server.NoCont[any](), fmt.Errorf("unexpected message: %T", m)
+		return gen_server.NoCont[any](), fmt.Errorf("unexpected message: %T", m)
 	}
-	return server.NoCont[any](), nil
+	return gen_server.NoCont[any](), nil
 }
 
-func (f *Crew) Terminate(reason error) error {
+func (f *Crew) Terminate(pctx process.Context, reason error) error {
 	switch {
 	case errors.Is(reason, process.NORMAL) || errors.Is(reason, ctx.Shutdown{}):
-		slog.InfoContext(f.Context(), "Crew.Terminate", slog.Any("reason", reason))
+		slog.InfoContext(pctx.Context(), "Crew.Terminate", slog.Any("reason", reason))
 	default:
-		slog.ErrorContext(f.Context(), "Crew.Terminate", slog.Any("reason", reason))
+		slog.ErrorContext(pctx.Context(), "Crew.Terminate", slog.Any("reason", reason))
 	}
 	return reason
 }
