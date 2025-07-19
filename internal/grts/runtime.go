@@ -12,7 +12,11 @@ import (
 	"github.com/Morgahl/gotp/debug"
 	"github.com/Morgahl/gotp/internal/ctx"
 	"github.com/Morgahl/gotp/process"
-	"github.com/Morgahl/gotp/server"
+	"github.com/Morgahl/gotp/supervisor"
+)
+
+var (
+	init_ref process.Ref
 )
 
 func Run(app application.Application) (err error) {
@@ -21,79 +25,84 @@ func Run(app application.Application) (err error) {
 
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
-	root := process.Spawn(_init(ctx, app, wg))
-	root.Start()
-	slog.DebugContext(ctx, "grts.Run: root process started", slog.Any("pid", root.PID()))
+	init_ref = process.Spawn(_init(ctx, app, wg))
+	slog.Debug("grts.Run: init process started", slog.Any("pid", init_ref.PID()))
 
 	<-ctx.Done()
 	wg.Wait()
 
-	slog.InfoContext(ctx, "grts.Run: exiting")
+	slog.Debug("grts.Run: exiting")
 	return context.Cause(ctx)
 }
 
-func _init(rootCtx ctx.Cancellable, app application.Application, wg *sync.WaitGroup) process.RunFn {
-	return func(p *process.Process) (reason error) {
+func Stop(reason error) {
+	slog.Debug("grts.Stop: stopping application", slog.Any("reason", reason))
+	process.Send(init_ref, process.ExitMsg{PID: init_ref.PID(), Reason: reason})
+}
+
+func _init(initCtx ctx.Cancellable, app application.Application, wg *sync.WaitGroup) process.RunFn {
+	return func(pctx process.Context) (reason error) {
+		pctx.TrapExit(true)
 		defer wg.Done()
 		defer func() {
 			reason = debug.Recover(recover(), "grts._init", reason)
-			rootCtx.Cancel(reason)
+			initCtx.Cancel(reason)
 		}()
 
-		slog.DebugContext(rootCtx, "grts._init: calling start hook", slog.Any("name", app.Name()), slog.Any("version", app.Version()))
-
-		var root server.Supervisable
+		slog.DebugContext(pctx.Context(), "grts._init: calling start hook", slog.Any("name", app.Name()), slog.Any("version", app.Version()))
+		var init supervisor.Supervisable
 		startUp := time.Now()
-		if root, reason = app.Start(application.Normal()); reason != nil {
-			slog.ErrorContext(rootCtx, "grts._init: failed to call application start hook", slog.Any("error", reason))
+		if init, reason = app.Start(application.Normal()); reason != nil {
+			slog.ErrorContext(pctx.Context(), "grts._init: failed to call application start hook", slog.Any("error", reason))
 			return reason
 		}
 
-		slog.DebugContext(rootCtx, "grts._init: starting application", slog.Duration("took", time.Since(startUp)))
-		var sup server.Supervised
-		if sup, reason = root.StartLink(p); reason != nil {
-			slog.ErrorContext(rootCtx, "grts._init: failed to start supervision tree", slog.Any("error", reason))
+		slog.InfoContext(pctx.Context(), "grts._init: starting application", slog.Duration("took", time.Since(startUp)))
+		var sup process.Ref
+		if sup, reason = init.ChildSpec().Start(); reason != nil {
+			slog.ErrorContext(pctx.Context(), "grts._init: failed to start supervision tree", slog.Any("error", reason))
 			return reason
 		}
 
 		defer func(startUp time.Time) {
-			slog.InfoContext(rootCtx, "grts._init: exiting", slog.Duration("after", time.Since(startUp)))
+			slog.InfoContext(pctx.Context(), "grts._init: exiting", slog.Duration("after", time.Since(startUp)))
 		}(startUp)
-		slog.InfoContext(rootCtx, "grts._init: supervision tree started", slog.Any("pid", sup.PID()), slog.Duration("took", time.Since(startUp)))
-
-		if msg, ok, err := process.ReceiveContext[process.ExitMsg](p, rootCtx); err != nil {
-			if cause := context.Cause(rootCtx); errors.Is(err, cause) {
-				slog.DebugContext(rootCtx, "grts._init: received expected shutdown signal", slog.String("reason", err.Error()))
-				reason = cause
+		slog.InfoContext(pctx.Context(), "grts._init: supervision tree started", slog.Any("pid", sup.PID()), slog.Duration("took", time.Since(startUp)))
+		for {
+			if msg, ok, err := process.ReceiveContext[process.ExitMsg](pctx, initCtx); err != nil {
+				if cause := context.Cause(initCtx); errors.Is(err, cause) {
+					slog.DebugContext(pctx.Context(), "grts._init: received shutdown signal", slog.Any("reason", err))
+					reason = cause
+					goto EXIT
+				}
+				slog.ErrorContext(pctx.Context(), "grts._init: unexpected error receiving ExitMsg", slog.Any("error", err))
+				reason = err
+				goto EXIT
+			} else if ok && msg.PID == pctx.PID() {
+				slog.InfoContext(pctx.Context(), "grts._init: received exit", slog.Any("msg", msg))
+				reason = msg.Reason
 				goto EXIT
 			}
-			slog.ErrorContext(rootCtx, "grts._init: unexpected error receiving ExitMsg", slog.Any("pid", p.PID()), slog.Any("error", err))
-			reason = err
-			goto EXIT
-		} else if ok {
-			slog.DebugContext(rootCtx, "grts._init: received exit", slog.String("msg", fmt.Sprintf("%+v", msg)))
-			reason = msg.Reason
-			goto EXIT
 		}
 
 	EXIT:
-		slog.DebugContext(rootCtx, "grts._init: shutting down supervision tree")
+		slog.InfoContext(pctx.Context(), "grts._init: shutting down supervision tree", slog.Any("reason", reason))
 		shutDown := time.Now()
 		defer func(shutDown time.Time) {
-			slog.InfoContext(rootCtx, "grts._init: application exited", slog.Duration("took", time.Since(shutDown)))
+			slog.InfoContext(pctx.Context(), "grts._init: application exited", slog.Duration("took", time.Since(shutDown)))
 		}(shutDown)
-		sup.Exit(reason)
-		slog.DebugContext(rootCtx, "grts._init: waiting for exit messages", slog.Duration("took", time.Since(shutDown)))
-		msg, ok, err := process.ReceiveWithTimeout[process.ExitMsg](p, 0)
+		sup.Send(process.ExitMsg{PID: sup.PID(), Reason: reason})
+		slog.DebugContext(pctx.Context(), "grts._init: waiting for exit messages")
+		msg, ok, err := process.ReceiveWithTimeout[process.ExitMsg](pctx, 0)
 		if err != nil {
 			if errors.Is(err, reason) {
-				slog.DebugContext(rootCtx, "grts._init: received expected exit message", slog.Any("pid", p.PID()), slog.Any("reason", reason))
+				slog.DebugContext(pctx.Context(), "grts._init: received expected exit message", slog.Any("reason", reason))
 				return reason
 			}
-			slog.ErrorContext(rootCtx, "grts._init: error receiving ExitMsg", slog.Any("pid", p.PID()), slog.Any("error", err))
+			slog.ErrorContext(pctx.Context(), "grts._init: error receiving ExitMsg", slog.Any("error", err))
 			return err
 		} else if !ok {
-			slog.DebugContext(rootCtx, "grts._init: process exited without exit message", slog.Duration("took", time.Since(shutDown)))
+			slog.WarnContext(pctx.Context(), "grts._init: process exited without exit message", slog.Duration("took", time.Since(shutDown)))
 		}
 		return msg.Reason
 	}

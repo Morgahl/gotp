@@ -22,7 +22,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	count := 100_000_000
+	count := 1_000_000
 	slog.Info("Running missions with agent", "pid", agent.pid, "count", count)
 	runStart := time.Now()
 	runMissions(agent, count)

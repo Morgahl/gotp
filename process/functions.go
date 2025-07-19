@@ -8,15 +8,12 @@ import (
 )
 
 type Sendable interface {
-	*Process | Ref | PID | gotp.Atom
+	Ref | PID | gotp.Atom
 }
 
-func Send[S Sendable](s S, m Message) {
+func Send[S Sendable](to S, m Message) {
 	defer func() { recover() }()
-	switch v := any(s).(type) {
-	case *Process:
-		v.send(messageSignal(no_FLAGS, m))
-
+	switch v := any(to).(type) {
 	case Ref:
 		v.send(messageSignal(no_FLAGS, m))
 
@@ -34,36 +31,34 @@ func SendAfter[S Sendable](s S, m Message, delay time.Duration) *time.Timer {
 	return time.AfterFunc(delay, func() { Send(s, m) })
 }
 
-func ReceiveWithTimeout[M Message](p *Process, timeout time.Duration) (M, bool, error) {
+func ReceiveWithTimeout[M Message](pctx Context, timeout time.Duration) (M, bool, error) {
 	var after <-chan time.Time
 	if timeout > 0 {
 		after = time.After(timeout)
 	}
-	return receive[M](p, after)
+	return receive[M](pctx, after)
 }
 
-func ReceiveContext[M Message](p *Process, ctx context.Context) (M, bool, error) {
-	m, ok, err := receive[M](p, ctx.Done())
+func ReceiveContext[M Message](pctx Context, ctx context.Context) (M, bool, error) {
+	m, ok, err := receive[M](pctx, ctx.Done())
 	if err == nil {
 		err = context.Cause(ctx)
 	}
 	return m, ok, err
 }
 
-func receive[M Message, D any](p *Process, done <-chan D) (_ M, _ bool, reason error) {
+func receive[M Message, D any](pctx Context, done <-chan D) (_ M, _ bool, reason error) {
 	var readOffset int
 	var messageSkipOffset int
-	p.mailboxMu.Lock()
-	defer p.mailboxMu.Unlock()
-	defer p.maybeGarbageCollect()
-	switch p.state {
+	defer pctx.process.maybeGarbageCollect()
+	switch pctx.process.state {
 	case STARTING_STATE, STARTED_STATE:
 		select {
-		case s, ok := <-p.signalChan:
+		case s, ok := <-pctx.process.signalChan:
 			if !ok {
 				goto EXIT
 			}
-			p.handleSignal(s)
+			pctx.process.handleSignal(s)
 		case <-done:
 			goto EXIT
 		default:
@@ -75,17 +70,17 @@ func receive[M Message, D any](p *Process, done <-chan D) (_ M, _ bool, reason e
 	}
 
 PROCESS_MESSAGES:
-	switch p.state {
+	switch pctx.process.state {
 	case STARTING_STATE, STARTED_STATE:
-		for n, m := range p.mailbox[readOffset:] {
-			if messageSkipOffset < len(p.messageSkips) && p.messageSkips[messageSkipOffset] == readOffset+n {
+		for n, m := range pctx.process.mailbox[readOffset:] {
+			if messageSkipOffset < len(pctx.process.messageSkips) && pctx.process.messageSkips[messageSkipOffset] == readOffset+n {
 				messageSkipOffset++
 				readOffset++
 				continue
 			}
 			if mt, ok := m.(M); ok {
-				p.mailbox[readOffset] = nil
-				p.messageSkips = append(p.messageSkips, readOffset)
+				pctx.process.mailbox[readOffset] = nil
+				pctx.process.messageSkips = append(pctx.process.messageSkips, readOffset)
 				return mt, true, nil
 			}
 			readOffset++
@@ -96,29 +91,26 @@ PROCESS_MESSAGES:
 	}
 
 	select {
-	case s, ok := <-p.signalChan:
+	case s, ok := <-pctx.process.signalChan:
 		if !ok {
 			goto EXIT
 		}
-		p.handleSignal(s)
+		pctx.process.handleSignal(s)
 		goto PROCESS_MESSAGES
 	case <-done:
 		goto EXIT
 	}
 EXIT:
 	var zero M
-	if p.state == EXITING_STATE || p.state == EXITED_STATE {
-		return zero, false, p.exitReason
+	if pctx.process.state == EXITING_STATE || pctx.process.state == EXITED_STATE {
+		return zero, false, pctx.process.exitReason
 	}
 	return zero, false, nil
 }
 
-func Exit[S Sendable](s S, reason error) {
+func Exit[S Sendable](to S, reason error) {
 	defer func() { recover() }()
-	switch v := any(s).(type) {
-	case *Process:
-		v.send(exitSignal(no_FLAGS, v.pid, Ref{}, reason))
-
+	switch v := any(to).(type) {
 	case Ref:
 		v.send(exitSignal(no_FLAGS, v.pid, v, reason))
 
@@ -126,8 +118,6 @@ func Exit[S Sendable](s S, reason error) {
 		sendPID(v, exitSignal(no_FLAGS, v, Ref{}, reason))
 
 	case gotp.Atom:
-		if pid, found := namedPID(v); found {
-			sendPID(pid, exitSignal(no_FLAGS, pid, Ref{}, reason))
-		}
+		sendNamed(v, exitSignal(no_FLAGS, PIDZero(), Ref{}, reason))
 	}
 }

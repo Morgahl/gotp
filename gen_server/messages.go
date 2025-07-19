@@ -1,4 +1,4 @@
-package server
+package gen_server
 
 import (
 	"fmt"

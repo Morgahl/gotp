@@ -22,7 +22,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	count := 100_000_000
+	count := 1_000_000
 	slog.Info("Running missions with agent", "pid", agent.pid, "count", count)
 	runStart := time.Now()
 	runMissions(agent, count)
@@ -60,7 +60,7 @@ type Agent[N number] struct {
 }
 
 func newAgent[N number](initFn agent.InitFn[state[N]]) (*Agent[N], error) {
-	server, err := agent.New(initFn).Start()
+	server, err := agent.Start(initFn)
 	if err != nil {
 		return nil, err
 	}

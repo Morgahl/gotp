@@ -58,5 +58,14 @@ func newShutdown(signal os.Signal) Shutdown {
 }
 
 func (s Shutdown) Error() string {
-	return fmt.Sprintf("Shutdown{reason: %v}", s.reason)
+	return fmt.Sprintf("Shutdown{reason:%v}", s.reason)
 }
+
+func (s Shutdown) Is(err error) bool {
+	_, ok := err.(Shutdown)
+	return ok
+}
+
+// func (s Shutdown) LogValue() slog.Value {
+// 	return slog.StringValue(s.Error())
+// }
