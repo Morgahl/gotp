@@ -59,10 +59,10 @@ func ContextStop[S process.Sendable](pctx process.Context, to S, reason error) {
 
 func ChildSpec[T any](InitFn InitFn[T], sopts ...process.SpawnOpt) supervisor.ChildSpec {
 	return supervisor.ChildSpec{
-		Restart:  supervisor.PERMANENT,
-		Shutdown: gotp.DEFAULT_SHUTDOWN,
-		Type:     supervisor.WORKER,
-		// Significant: true,
+		Restart:     supervisor.PERMANENT,
+		Shutdown:    gotp.DEFAULT_SHUTDOWN,
+		Type:        supervisor.WORKER,
+		Significant: true,
 		Start: func(opts ...process.SpawnOpt) (process.Ref, error) {
 			return gen_server.Start(&agent[T]{initFn: InitFn}, InitFn, append(sopts, opts...)...)
 		},

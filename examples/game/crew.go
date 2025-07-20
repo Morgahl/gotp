@@ -51,10 +51,11 @@ func NewCrew(id gotp.Atom, agent gotp.Atom) *Crew {
 
 func (f *Crew) ChildSpec() supervisor.ChildSpec {
 	return supervisor.ChildSpec{
-		ID:       f.id,
-		Restart:  supervisor.TRANSIENT,
-		Shutdown: gotp.DEFAULT_SHUTDOWN,
-		Type:     supervisor.WORKER,
+		ID:          f.id,
+		Restart:     supervisor.TRANSIENT,
+		Shutdown:    gotp.DEFAULT_SHUTDOWN,
+		Type:        supervisor.WORKER,
+		Significant: true,
 		Start: func(opts ...process.SpawnOpt) (process.Ref, error) {
 			return gen_server.Start(f, nil, append([]process.SpawnOpt{process.Named(f.id)}, opts...)...)
 		},
@@ -124,8 +125,6 @@ func (f *Crew) Terminate(pctx process.Context, reason error) error {
 	case errors.Is(reason, process.NORMAL) || errors.Is(reason, ctx.Shutdown{}):
 		if f.work != nil {
 			slog.ErrorContext(pctx.Context(), "Crew.Terminate", slog.Any("reason", reason), slog.Any("work_id", f.work))
-		} else {
-			slog.InfoContext(pctx.Context(), "Crew.Terminate", slog.Any("reason", reason))
 		}
 	default:
 		slog.ErrorContext(pctx.Context(), "Crew.Terminate", slog.Any("reason", reason))

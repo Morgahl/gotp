@@ -1,8 +1,6 @@
 package process
 
 import (
-	"context"
-
 	"github.com/Morgahl/gotp"
 	"github.com/Morgahl/gotp/debug"
 )
@@ -77,13 +75,5 @@ func Named(name gotp.Atom) SpawnOpt {
 		debug.Assert(p.state == STARTING_STATE, "process must be in STARTING_STATE for spawn options to be applied")
 		debug.Assert(p.name == "", "process name must be empty when setting it")
 		p.name = name
-	}
-}
-
-func WithContext(ctx context.Context) SpawnOpt {
-	return func(p *process) {
-		debug.Assert(p.state == STARTING_STATE, "process must be in STARTING_STATE for spawn options to be applied")
-		debug.AssertNil(p.context, "process context must be nil when setting it")
-		p.context, p.contextCancel = context.WithCancelCause(ctx)
 	}
 }

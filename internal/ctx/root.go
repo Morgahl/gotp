@@ -65,7 +65,3 @@ func (s Shutdown) Is(err error) bool {
 	_, ok := err.(Shutdown)
 	return ok
 }
-
-// func (s Shutdown) LogValue() slog.Value {
-// 	return slog.StringValue(s.Error())
-// }

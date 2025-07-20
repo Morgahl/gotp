@@ -8,7 +8,9 @@ import (
 	"time"
 
 	"github.com/Morgahl/gotp"
+	"github.com/Morgahl/gotp/debug"
 	"github.com/Morgahl/gotp/gen_server"
+	"github.com/Morgahl/gotp/internal/ctx"
 	"github.com/Morgahl/gotp/process"
 	"github.com/Morgahl/gotp/supervisor"
 )
@@ -21,6 +23,7 @@ type server struct {
 	specs    []supervisor.ChildSpec
 	childIDs map[gotp.Atom]process.PID
 	children map[process.PID]child
+	sigCount uint64
 }
 
 func (s *server) ChildSpec() supervisor.ChildSpec {
@@ -74,7 +77,8 @@ func (s *server) HandleCall(pctx process.Context, msg process.Message, _ process
 		}
 	}
 
-	panic(fmt.Sprintf("StaticSupervisor.HandleCall: unknown message type %T", msg))
+	debug.Throw("StaticSupervisor.HandleCall: unknown message type %T", msg)
+	panic("unreachable code")
 }
 
 func (s *server) HandleCast(pctx process.Context, msg process.Message) (cont gen_server.Continue[process.Message], err error) {
@@ -105,7 +109,7 @@ func (s *server) HandleInfo(pctx process.Context, info process.Message) (cont ge
 		if !s.deregisterChild(info.PID) {
 			return gen_server.NoCont[process.Message](), nil
 		} else if !shouldRestart {
-			if len(s.children) == 0 {
+			if s.options.AutoShutdown == supervisor.ALL_SIGNIFICANT && s.sigCount == 0 {
 				slog.DebugContext(pctx.Context(), "StaticSupervisor.HandleInfo - no children left, stopping")
 				return gen_server.Stop[process.Message](process.NORMAL), nil
 			}
@@ -191,11 +195,17 @@ func (s *server) registerChild(spec supervisor.ChildSpec, ref process.Ref) error
 	if id := spec.ID; id != "" {
 		s.childIDs[id] = pid
 	}
+	if spec.Significant {
+		s.sigCount++
+	}
 	return nil
 }
 
 func (s *server) deregisterChild(pid process.PID) (deleted bool) {
 	if child, ok := s.children[pid]; ok {
+		if child.spec.Significant {
+			s.sigCount--
+		}
 		if id := child.spec.ID; id != "" {
 			delete(s.childIDs, id)
 		}
@@ -211,7 +221,7 @@ func (s *server) shouldRestart(pid process.PID, reason error) (restart bool) {
 	if !ok {
 		return false
 	}
-	if errors.Is(reason, process.NORMAL) || errors.Is(reason, process.KILL) {
+	if errors.Is(reason, process.NORMAL) || errors.Is(reason, ctx.Shutdown{}) {
 		return false
 	}
 

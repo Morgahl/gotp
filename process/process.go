@@ -51,9 +51,7 @@ func build(opts []SpawnOpt) *process {
 	if p.mailbox == nil {
 		p.mailbox = make([]Message, 0, MAILBOX_SIZE)
 	}
-	if p.context == nil {
-		p.context, p.contextCancel = context.WithCancelCause(context.Background())
-	}
+	p.context, p.contextCancel = context.WithCancelCause(context.Background())
 	p.context = context.WithValue(p.context, gotp.Atom("pid"), p.pid)
 	if p.name != "" {
 		p.context = context.WithValue(p.context, gotp.Atom("name"), p.name)
@@ -84,6 +82,7 @@ func SpawnMonitor(fn RunFn, monitor Ref, opts ...SpawnOpt) Ref {
 func (p *process) run(runFn RunFn) {
 	defer func() {
 		p.exitReason = debug.Recover(recover(), "process.run", p.exitReason)
+		p.contextCancel(p.exitReason)
 		if p.deregNameHandle != nil {
 			p.deregNameHandle()
 			p.deregNameHandle = nil

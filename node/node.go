@@ -1,4 +1,4 @@
-package gotp
+package node
 
 type Node struct {
 	name string

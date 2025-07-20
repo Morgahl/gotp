@@ -133,8 +133,8 @@ func namedRef(name gotp.Atom) (Ref, bool) {
 
 func gcWaiter() {
 	for {
-		if time.Since(lastGC) < gcInterval {
-			time.Sleep(gcInterval - time.Since(lastGC))
+		if since := time.Since(lastGC); since < gcInterval {
+			time.Sleep(gcInterval - since)
 			continue
 		}
 		gc()
@@ -143,12 +143,6 @@ func gcWaiter() {
 
 func gc() {
 	if time.Since(lastGC) < gcInterval {
-		return
-	}
-
-	if removedPIDs+removedNames == 0 && time.Since(lastGC) > gcInterval*4 {
-		runtime.GC()
-		lastGC = time.Now()
 		return
 	}
 

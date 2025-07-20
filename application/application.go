@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/Morgahl/gotp"
+	"github.com/Morgahl/gotp/node"
 	"github.com/Morgahl/gotp/supervisor"
 )
 
@@ -33,18 +34,18 @@ const (
 
 type StartType struct {
 	startType startType
-	node      gotp.Node
+	node      node.Node
 }
 
 func Normal() StartType {
 	return StartType{startType: NORMAL}
 }
 
-func Takeover(node gotp.Node) StartType {
+func Takeover(node node.Node) StartType {
 	return StartType{startType: TAKEOVER, node: node}
 }
 
-func Failover(node gotp.Node) StartType {
+func Failover(node node.Node) StartType {
 	return StartType{startType: FAILOVER, node: node}
 }
 
@@ -65,14 +66,14 @@ func (st StartType) IsNormal() bool {
 	return st.startType == NORMAL
 }
 
-func (st StartType) IsTakeover() (node gotp.Node, ok bool) {
+func (st StartType) IsTakeover() (node node.Node, ok bool) {
 	if st.startType == TAKEOVER {
 		return st.node, true
 	}
 	return
 }
 
-func (st StartType) IsFailover() (node gotp.Node, ok bool) {
+func (st StartType) IsFailover() (node node.Node, ok bool) {
 	if st.startType == FAILOVER {
 		return st.node, true
 	}

@@ -1,6 +1,7 @@
 package debug
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"runtime/debug"
@@ -47,6 +48,10 @@ func (r Recovered) Error() string {
 	}
 	b.WriteByte('}')
 	return b.String()
+}
+
+func (r Recovered) Is(err error) bool {
+	return errors.Is(r.err, err) || errors.Is(r.r, err)
 }
 
 func (r Recovered) LogValue() slog.Value {

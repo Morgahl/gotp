@@ -11,12 +11,19 @@ import (
 
 var _ supervisor.Supervisor[gotp.Options] = &Team{}
 
+var (
+	DEFAULT_SUPERVISOR_OPTIONS = supervisor.Options{
+		AutoShutdown: supervisor.ALL_SIGNIFICANT,
+		Strategy:     supervisor.ONE_FOR_ONE,
+	}
+)
+
 // for each list of team names we create another tier of teams with the names concatenated with an underscore the last
 // set of teams will have crew as their children
 func treeOfTeams(workAgent, team gotp.Atom, teams [][]gotp.Atom, crew []gotp.Atom) supervisor.Supervisable {
 	var supervisors []supervisor.Supervisable
 	if len(teams) == 0 {
-		return NewTeam(team, supervisor.Options{}, buildCrew(workAgent, team, crew)...)
+		return NewTeam(team, DEFAULT_SUPERVISOR_OPTIONS, buildCrew(workAgent, team, crew)...)
 	}
 
 	for _, t := range teams[0] {
@@ -33,16 +40,16 @@ func treeOfTeams(workAgent, team gotp.Atom, teams [][]gotp.Atom, crew []gotp.Ato
 		}
 		// prepend the work agent to the list of supervisors
 		supervisors = append([]supervisor.Supervisable{NewWorkAgent(workAgent, 2*uint64(count*len(crew)))}, supervisors...)
-		return NewTeam("teams", supervisor.Options{}, supervisors...)
+		return NewTeam("teams", DEFAULT_SUPERVISOR_OPTIONS, supervisors...)
 	}
-	return NewTeam(team, supervisor.Options{}, supervisors...)
+	return NewTeam(team, DEFAULT_SUPERVISOR_OPTIONS, supervisors...)
 }
 
 func buildTeams(workAgent gotp.Atom, teams, crew []gotp.Atom) []supervisor.Supervisable {
 	var supervisors []supervisor.Supervisable
 	supervisors = append(supervisors, NewWorkAgent(workAgent, 2*uint64(len(teams)*len(crew))))
 	for _, t := range teams {
-		supervisors = append(supervisors, NewTeam(t, supervisor.Options{}, buildCrew(workAgent, t, crew)...))
+		supervisors = append(supervisors, NewTeam(t, DEFAULT_SUPERVISOR_OPTIONS, buildCrew(workAgent, t, crew)...))
 	}
 	return supervisors
 }
