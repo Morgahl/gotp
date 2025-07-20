@@ -59,7 +59,7 @@ func _init(initCtx ctx.Cancellable, app application.Application, wg *sync.WaitGr
 
 		slog.InfoContext(pctx.Context(), "grts._init: starting application", slog.Duration("took", time.Since(startUp)))
 		var sup process.Ref
-		if sup, reason = init.ChildSpec().Start(); reason != nil {
+		if sup, reason = init.ChildSpec().Start(process.Link(pctx.Ref())); reason != nil {
 			slog.ErrorContext(pctx.Context(), "grts._init: failed to start supervision tree", slog.Any("error", reason))
 			return reason
 		}
@@ -79,9 +79,13 @@ func _init(initCtx ctx.Cancellable, app application.Application, wg *sync.WaitGr
 				reason = err
 				goto EXIT
 			} else if ok && msg.PID == pctx.PID() {
-				slog.InfoContext(pctx.Context(), "grts._init: received exit", slog.Any("msg", msg))
+				slog.InfoContext(pctx.Context(), "grts._init: received init exit", slog.Any("msg", msg))
 				reason = msg.Reason
 				goto EXIT
+			} else if ok && msg.PID == sup.PID() {
+				slog.InfoContext(pctx.Context(), "grts._init: received app exit", slog.Any("msg", msg))
+				reason = msg.Reason
+				return
 			}
 		}
 

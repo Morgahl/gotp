@@ -4,6 +4,7 @@ import (
 	"runtime"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/Morgahl/gotp"
 	"github.com/Morgahl/gotp/debug"
@@ -24,11 +25,15 @@ var (
 	nameRegistryMu sync.RWMutex
 	nameRegistry   map[gotp.Atom]Ref
 	removedNames   int
+
+	lastGC     = time.Now()
+	gcInterval = 60 * time.Second
 )
 
 func init() {
 	pidRegistry = make(map[PID]Ref, registry_DEFAULT_SIZE)
 	nameRegistry = make(map[gotp.Atom]Ref, registry_DEFAULT_SIZE)
+	go gcWaiter()
 }
 
 func nextPID() PID {
@@ -59,17 +64,9 @@ func registerPID(pid PID, ref Ref) func() {
 		delete(pidRegistry, pid)
 		removedPIDs++
 		if removedPIDs*10 > len(pidRegistry) {
-			newRegistry := make(map[PID]Ref, max(len(pidRegistry), registry_DEFAULT_SIZE))
-			for k, v := range pidRegistry {
-				newRegistry[k] = v
-			}
-			pidRegistry = newRegistry
-			removedPIDs = 0
-			if len(pidRegistry) > 10000 {
-				// optimistically call for a GC since this likely means a lot of processes have been removed
-				// and otherwise the memory will not be reclaimed until the next GC cycle
-				runtime.GC()
-			}
+			pidRegistryMu.Unlock()
+			gcPID()
+			return
 		}
 		pidRegistryMu.Unlock()
 	}
@@ -106,18 +103,10 @@ func registerNamed(name gotp.Atom, ref Ref) func() {
 		nameRegistryMu.Lock()
 		delete(nameRegistry, name)
 		removedNames++
-		if removedNames*10 > len(nameRegistry) {
-			newRegistry := make(map[gotp.Atom]Ref, max(len(nameRegistry), registry_DEFAULT_SIZE))
-			for k, v := range nameRegistry {
-				newRegistry[k] = v
-			}
-			nameRegistry = newRegistry
-			removedNames = 0
-			if len(nameRegistry) > 10000 {
-				// optimistically call for a GC since this likely means a lot of processes have been removed
-				// and otherwise the memory will not be reclaimed until the next GC cycle
-				runtime.GC()
-			}
+		if removedNames*4 > len(nameRegistry) {
+			nameRegistryMu.Unlock()
+			gcName()
+			return
 		}
 		nameRegistryMu.Unlock()
 	}
@@ -140,4 +129,58 @@ func namedRef(name gotp.Atom) (Ref, bool) {
 		return ref, true
 	}
 	return Ref{}, false
+}
+
+func gcWaiter() {
+	for {
+		if time.Since(lastGC) < gcInterval {
+			time.Sleep(gcInterval - time.Since(lastGC))
+			continue
+		}
+		gc()
+	}
+}
+
+func gc() {
+	if time.Since(lastGC) < gcInterval {
+		return
+	}
+
+	if removedPIDs+removedNames == 0 && time.Since(lastGC) > gcInterval*4 {
+		runtime.GC()
+		lastGC = time.Now()
+		return
+	}
+
+	gcPID()
+	gcName()
+
+	lastGC = time.Now()
+	runtime.GC()
+}
+
+func gcPID() {
+	pidRegistryMu.Lock()
+	newRegistry := make(map[PID]Ref, max(len(pidRegistry), registry_DEFAULT_SIZE))
+	for k, v := range pidRegistry {
+		if v.IsValid() {
+			newRegistry[k] = v
+		}
+	}
+	pidRegistry = newRegistry
+	removedPIDs = 0
+	pidRegistryMu.Unlock()
+}
+
+func gcName() {
+	nameRegistryMu.Lock()
+	newNameRegistry := make(map[gotp.Atom]Ref, max(len(nameRegistry), registry_DEFAULT_SIZE))
+	for k, v := range nameRegistry {
+		if v.IsValid() {
+			newNameRegistry[k] = v
+		}
+	}
+	nameRegistry = newNameRegistry
+	removedNames = 0
+	nameRegistryMu.Unlock()
 }

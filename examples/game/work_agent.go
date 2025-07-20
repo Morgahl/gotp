@@ -3,12 +3,10 @@ package game
 import (
 	"fmt"
 	"log/slog"
-	"math/rand"
 	"time"
 
 	"github.com/Morgahl/gotp"
 	"github.com/Morgahl/gotp/agent"
-	"github.com/Morgahl/gotp/internal/grts"
 	"github.com/Morgahl/gotp/process"
 	"github.com/Morgahl/gotp/supervisor"
 )
@@ -36,7 +34,7 @@ func ContextGetWork[S process.Sendable](pctx process.Context, agnt S, from proce
 	s, ok := agent.ContextGetAndUpdate(pctx, agnt, func(state *state) state {
 		state.generate()
 		return *state
-	})
+	}, 5*time.Second)
 	if !ok || !s.next {
 		return nil, false
 	}
@@ -47,20 +45,21 @@ func ContextGetWork[S process.Sendable](pctx process.Context, agnt S, from proce
 func ContextSubmitProcessedWork[S process.Sendable](pctx process.Context, agnt S, work *workItem) (*workItem, bool) {
 	s, ok := agent.ContextGetAndUpdate(pctx, agnt, func(state *state) state {
 		state.receivedProcessed(work)
-		slog.InfoContext(pctx.Context(), "Submitted work", slog.Uint64("wanted", state.wanted), slog.Uint64("generated", state.generated), slog.Uint64("processed", state.processed))
+		if state.wanted > state.generated && state.generated%100 == 0 || state.generated > state.processed && state.processed%100 == 0 {
+			slog.DebugContext(pctx.Context(), "Submitted work", slog.Uint64("wanted", state.wanted), slog.Uint64("generated", state.generated), slog.Uint64("processed", state.processed))
+		}
 		if state.processed == state.wanted {
-			slog.InfoContext(pctx.Context(), "All work processed", slog.Uint64("wanted", state.wanted), slog.Uint64("generated", state.generated), slog.Uint64("processed", state.processed))
+			slog.DebugContext(pctx.Context(), "All work processed", slog.Uint64("wanted", state.wanted), slog.Uint64("generated", state.generated), slog.Uint64("processed", state.processed))
 			agent.ContextStop(pctx, agnt, process.NORMAL)
-			time.AfterFunc(time.Second, func() {
-				grts.Stop(process.NORMAL)
-			})
+			// time.AfterFunc(time.Second, func() {
+			// 	grts.Stop(process.NORMAL)
+			// })
 		}
 		return *state
-	})
+	}, 5*time.Second)
 	if !ok || !s.next {
 		return nil, false
 	}
-	slog.Debug("Generated work", "wanted", s.wanted, "generated", s.generated, "processed", s.processed)
 	return s.workItem, s.next
 }
 
@@ -79,8 +78,9 @@ func (s *state) generate() {
 	s.generated++
 	s.next = true
 	s.workItem = &workItem{
-		id:   gotp.Atom(fmt.Sprintf("work-%d", s.generated)),
-		need: uint64(rand.Intn(56) + 5),
+		id: gotp.Atom(fmt.Sprintf("work-%d", s.generated)),
+		// need: uint64(rand.Intn(56) + 5),
+		need: 1,
 	}
 }
 

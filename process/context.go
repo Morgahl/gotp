@@ -9,6 +9,7 @@ import (
 
 type Context struct {
 	process *process
+	ref     Ref
 	pidMap  map[PID]Ref
 	nameMap map[gotp.Atom]Ref
 }
@@ -16,13 +17,14 @@ type Context struct {
 func newContext(process *process) Context {
 	return Context{
 		process: process,
+		ref:     newRef(process),
 		pidMap:  make(map[PID]Ref),
 		nameMap: make(map[gotp.Atom]Ref),
 	}
 }
 
 func (c *Context) Ref() Ref {
-	return newRef(c.process)
+	return c.ref
 }
 
 func (c *Context) PID() PID {

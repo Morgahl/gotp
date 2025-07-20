@@ -73,7 +73,7 @@ func (c *Agent[N]) LogMission(score, loss N) {
 }
 
 func (c *Agent[N]) EvaluatePerformance() N {
-	n, _ := agent.Get(c.pid, c.pid, func(state state[N]) state[N] { return state })
+	n, _ := agent.Get(c.pid, c.pid, func(state state[N]) state[N] { return state }, 0)
 	slog.Info("Evaluating performance", "state", n)
 	return n.EvaluatePerformance()
 }

@@ -20,12 +20,12 @@ func (Game) Version() application.Version {
 
 func (f Game) Start(st application.StartType) (supervisor.Supervisable, error) {
 	if st.IsNormal() {
-		// return NewTeam("teams", supervisor.Options{}, treeOfTeams("quartermaster", "", [][]gotp.Atom{greekList[:1]}, namesList[:1])), nil
-		// return NewTeam("teams", supervisor.Options{}, treeOfTeams("quartermaster", "", [][]gotp.Atom{greekList[:10]}, namesList[:10])), nil
-		return NewTeam("teams", supervisor.Options{}, treeOfTeams("quartermaster", "", [][]gotp.Atom{greekList}, namesList)), nil
-		// return NewTeam("teams", supervisor.Options{}, treeOfTeams("quartermaster", "", [][]gotp.Atom{greekList, greekList}, namesList)), nil
-		// return NewTeam("teams", supervisor.Options{}, treeOfTeams("quartermaster", "", [][]gotp.Atom{greekList, greekList, greekList}, namesList)), nil
-		// return NewTeam("teams", supervisor.Options{}, treeOfTeams("quartermaster", "", [][]gotp.Atom{greekList, greekList, greekList, greekList[:len(greekList)/4]}, namesList)), nil
+		// return treeOfTeams("quartermaster", "teams", [][]gotp.Atom{greekList[:1]}, namesList[:1]), nil
+		// return treeOfTeams("quartermaster", "teams", [][]gotp.Atom{greekList[:10]}, namesList[:10]), nil
+		// return treeOfTeams("quartermaster", "teams", [][]gotp.Atom{greekList}, namesList), nil
+		// return treeOfTeams("quartermaster", "teams", [][]gotp.Atom{greekList, greekList}, namesList), nil
+		return treeOfTeams("quartermaster", "teams", [][]gotp.Atom{greekList, greekList, greekList}, namesList), nil
+		// return treeOfTeams("quartermaster", "teams", [][]gotp.Atom{greekList, greekList, greekList, greekList[:len(greekList)/4]}, namesList), nil
 	} else if _, ok := st.IsFailover(); ok {
 		return nil, errors.New("failover not supported in Game")
 	} else if _, ok := st.IsTakeover(); ok {

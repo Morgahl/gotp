@@ -3,6 +3,7 @@ package static
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"time"
 
@@ -104,6 +105,10 @@ func (s *server) HandleInfo(pctx process.Context, info process.Message) (cont ge
 		if !s.deregisterChild(info.PID) {
 			return gen_server.NoCont[process.Message](), nil
 		} else if !shouldRestart {
+			if len(s.children) == 0 {
+				slog.DebugContext(pctx.Context(), "StaticSupervisor.HandleInfo - no children left, stopping")
+				return gen_server.Stop[process.Message](process.NORMAL), nil
+			}
 			return gen_server.NoCont[process.Message](), nil
 		}
 		if err := s.startChild(pctx, child.spec); err != nil {
@@ -111,10 +116,9 @@ func (s *server) HandleInfo(pctx process.Context, info process.Message) (cont ge
 			// TODO: also this likely need to be a computed reset for the after timer
 			_ = pctx.SendAfter(gen_server.CallMsg[process.Message, process.Message](pctx.PID(), child), s.options.ResetPeriod)
 			return gen_server.NoCont[process.Message](), err
-		} else {
-			return gen_server.NoCont[process.Message](), nil
 		}
 	}
+
 	return gen_server.NoCont[process.Message](), nil
 }
 
@@ -207,14 +211,15 @@ func (s *server) shouldRestart(pid process.PID, reason error) (restart bool) {
 	if !ok {
 		return false
 	}
+	if errors.Is(reason, process.NORMAL) || errors.Is(reason, process.KILL) {
+		return false
+	}
+
 	spec := cs.spec
 	switch spec.Restart {
 	case supervisor.TEMPORARY, supervisor.TRANSIENT:
 		return false
 	case supervisor.PERMANENT:
-		if errors.Is(reason, process.KILL) || errors.Is(reason, process.NORMAL) && spec.Type == supervisor.WORKER {
-			return false
-		}
 		cs.restart.count++
 		if cs.restart.count == 1 {
 			cs.restart.at = time.Now()

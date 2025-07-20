@@ -78,6 +78,9 @@ func (f *Crew) HandleContinue(pctx process.Context, msg any) (gen_server.Continu
 					pctx.Send(gen_server.CastMsg(w))
 					return gen_server.NoCont[any](), nil
 				}
+
+				slog.DebugContext(pctx.Context(), "Crew.HandleContinue - no work available")
+				return gen_server.Stop[any](process.NORMAL), nil
 			}
 			work := f.work
 			f.work = nil
@@ -119,7 +122,11 @@ func (f *Crew) HandleInfo(pctx process.Context, msg process.Message) (gen_server
 func (f *Crew) Terminate(pctx process.Context, reason error) error {
 	switch {
 	case errors.Is(reason, process.NORMAL) || errors.Is(reason, ctx.Shutdown{}):
-		slog.InfoContext(pctx.Context(), "Crew.Terminate", slog.Any("reason", reason))
+		if f.work != nil {
+			slog.ErrorContext(pctx.Context(), "Crew.Terminate", slog.Any("reason", reason), slog.Any("work_id", f.work))
+		} else {
+			slog.InfoContext(pctx.Context(), "Crew.Terminate", slog.Any("reason", reason))
+		}
 	default:
 		slog.ErrorContext(pctx.Context(), "Crew.Terminate", slog.Any("reason", reason))
 	}

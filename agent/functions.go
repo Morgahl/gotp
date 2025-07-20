@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"time"
+
 	"github.com/Morgahl/gotp"
 	"github.com/Morgahl/gotp/gen_server"
 	"github.com/Morgahl/gotp/process"
@@ -20,23 +22,23 @@ func Cast[T any, S process.Sendable](to S, msg UpdateFn[T]) {
 }
 
 func ContextCast[T any, S process.Sendable](pctx process.Context, to S, msg UpdateFn[T]) {
-	gen_server.ContextCast[process.Message, S](to, pctx, msg)
+	gen_server.ContextCast[process.Message](to, pctx, msg)
 }
 
-func Get[T any, S process.Sendable](to S, from process.PID, msg GetFn[T]) (T, bool) {
-	return gen_server.Call[process.Message, T](to, from, msg, 0)
+func Get[T any, S process.Sendable](to S, from process.PID, msg GetFn[T], timeout time.Duration) (T, bool) {
+	return gen_server.Call[process.Message, T](to, from, msg, timeout)
 }
 
-func ContextGet[T any, S process.Sendable](pctx process.Context, to S, msg GetFn[T]) (T, bool) {
-	return gen_server.ContextCall[process.Message, T, S](to, pctx, msg, 0)
+func ContextGet[T any, S process.Sendable](pctx process.Context, to S, msg GetFn[T], timeout time.Duration) (T, bool) {
+	return gen_server.ContextCall[process.Message, T](to, pctx, msg, timeout)
 }
 
-func GetAndUpdate[T any, S process.Sendable](to S, from process.PID, msg GetAndUpdateFn[T]) (T, bool) {
-	return gen_server.Call[process.Message, T](to, from, msg, 0)
+func GetAndUpdate[T any, S process.Sendable](to S, from process.PID, msg GetAndUpdateFn[T], timeout time.Duration) (T, bool) {
+	return gen_server.Call[process.Message, T](to, from, msg, timeout)
 }
 
-func ContextGetAndUpdate[T any, S process.Sendable](pctx process.Context, to S, msg GetAndUpdateFn[T]) (T, bool) {
-	return gen_server.ContextCall[process.Message, T, S](to, pctx, msg, 0)
+func ContextGetAndUpdate[T any, S process.Sendable](pctx process.Context, to S, msg GetAndUpdateFn[T], timeout time.Duration) (T, bool) {
+	return gen_server.ContextCall[process.Message, T](to, pctx, msg, timeout)
 }
 
 func Update[T any, S process.Sendable](to S, msg UpdateFn[T]) {
@@ -44,7 +46,7 @@ func Update[T any, S process.Sendable](to S, msg UpdateFn[T]) {
 }
 
 func ContextUpdate[T any, S process.Sendable](pctx process.Context, to S, msg UpdateFn[T]) {
-	gen_server.ContextCast[process.Message, S](to, pctx, msg)
+	gen_server.ContextCast[process.Message](to, pctx, msg)
 }
 
 func Stop[S process.Sendable](to S, reason error) {
