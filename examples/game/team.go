@@ -20,19 +20,20 @@ func treeOfTeams(workAgent, team gotp.Atom, teams [][]gotp.Atom, crew []gotp.Ato
 	}
 
 	for _, t := range teams[0] {
-		if team == "" {
+		if team == "teams" {
 			supervisors = append(supervisors, treeOfTeams(workAgent, t, teams[1:], crew))
 		} else {
 			supervisors = append(supervisors, treeOfTeams(workAgent, team+"_"+t, teams[1:], crew))
 		}
 	}
-	if team == "" {
+	if team == "teams" {
 		count := len(teams[0])
 		for _, t := range teams[1:] {
 			count *= len(t)
 		}
 		// prepend the work agent to the list of supervisors
 		supervisors = append([]supervisor.Supervisable{NewWorkAgent(workAgent, 2*uint64(count*len(crew)))}, supervisors...)
+		return NewTeam("teams", supervisor.Options{}, supervisors...)
 	}
 	return NewTeam(team, supervisor.Options{}, supervisors...)
 }
