@@ -3,6 +3,7 @@ package game
 import (
 	"fmt"
 	"log/slog"
+	"math/rand"
 	"time"
 
 	"github.com/Morgahl/gotp"
@@ -51,9 +52,6 @@ func ContextSubmitProcessedWork[S process.Sendable](pctx process.Context, agnt S
 		if state.processed == state.wanted {
 			slog.DebugContext(pctx.Context(), "All work processed", slog.Uint64("wanted", state.wanted), slog.Uint64("generated", state.generated), slog.Uint64("processed", state.processed))
 			agent.ContextStop(pctx, agnt, process.NORMAL)
-			// time.AfterFunc(time.Second, func() {
-			// 	grts.Stop(process.NORMAL)
-			// })
 		}
 		return *state
 	}, 5*time.Second)
@@ -78,9 +76,8 @@ func (s *state) generate() {
 	s.generated++
 	s.next = true
 	s.workItem = &workItem{
-		id: gotp.Atom(fmt.Sprintf("work-%d", s.generated)),
-		// need: uint64(rand.Intn(56) + 5),
-		need: 1,
+		id:   gotp.Atom(fmt.Sprintf("work-%d", s.generated)),
+		need: uint64(rand.Intn(56) + 5),
 	}
 }
 
