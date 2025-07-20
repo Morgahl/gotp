@@ -10,11 +10,11 @@ import (
 )
 
 func Start[T any](initFn InitFn[T], opts ...process.SpawnOpt) (process.Ref, error) {
-	return gen_server.Start(&Agent[T]{initFn: initFn}, initFn, opts...)
+	return gen_server.Start(&agent[T]{initFn: initFn}, initFn, opts...)
 }
 
 func StartLink[T any](initFn InitFn[T], linked process.Ref, opts ...process.SpawnOpt) (process.Ref, error) {
-	return gen_server.StartLink(&Agent[T]{initFn: initFn}, initFn, linked, opts...)
+	return gen_server.StartLink(&agent[T]{initFn: initFn}, initFn, linked, opts...)
 }
 
 func Cast[T any, S process.Sendable](to S, msg UpdateFn[T]) {
@@ -64,7 +64,7 @@ func ChildSpec[T any](InitFn InitFn[T], sopts ...process.SpawnOpt) supervisor.Ch
 		Type:     supervisor.WORKER,
 		// Significant: true,
 		Start: func(opts ...process.SpawnOpt) (process.Ref, error) {
-			return gen_server.Start(&Agent[T]{initFn: InitFn}, InitFn, append(sopts, opts...)...)
+			return gen_server.Start(&agent[T]{initFn: InitFn}, InitFn, append(sopts, opts...)...)
 		},
 	}
 }
