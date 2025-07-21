@@ -8,6 +8,7 @@ import (
 
 	"github.com/Morgahl/gotp"
 	"github.com/Morgahl/gotp/debug"
+	"github.com/Morgahl/gotp/internal/pid"
 )
 
 const (
@@ -38,11 +39,11 @@ func init() {
 
 func nextPID() PID {
 	id := atomic.AddUint64(&localID, 1)
-	if id > ID_MASK {
+	if id > pid.ID_MASK {
 		stepSerial()
 		id = 1
 	}
-	return newPID(0, id, uint8(atomic.LoadUint32(&serial)&SERIAL_MASK))
+	return pid.NewPID(0, id, uint8(atomic.LoadUint32(&serial)&pid.SERIAL_MASK))
 }
 
 func stepSerial() {

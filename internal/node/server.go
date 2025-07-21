@@ -1,6 +1,7 @@
 package node
 
 import (
+	"crypto/subtle"
 	"crypto/tls"
 	"fmt"
 	"log/slog"
@@ -148,17 +149,20 @@ func (s *Server) listen() {
 		debug.AssertNil(err, "Failed to accept connection from %s: %s", conn.RemoteAddr(), err)
 		// TODO: FUTURE HOME OF A LINKED PROCESS SPAWN INSTEAD OF THIS GO ROUTINE
 		go func(c net.Conn, cookie Cookie) {
-			defer c.Close()
+			defer func() {
+				debug.AssertNil(conn.Close(), "Failed to close connection to %s: %s", conn.RemoteAddr(), err)
+			}()
+
 			// HANDSHAKE
 
-			// Handshake <<<< Client
+			// HandshakeSYN <<<< Client
 			nonce, err := icrypto.ReadNonce(c)
 			debug.AssertNil(err, "Failed to read nonce from %s: %s", c.RemoteAddr(), err)
 			hmac, err := icrypto.ReadHMAC(c)
 			debug.AssertNil(err, "Failed to read HMAC from %s: %s", c.RemoteAddr(), err)
 			debug.Assert(icrypto.VerifyMAC([]byte(cookie), nonce, hmac), "Bad handshake invalid HMAC from %s", c.RemoteAddr())
 
-			// Handshake >>>> Client
+			// HandshakeSYNACK >>>> Client
 			slog.Info("Building handshake response for client", "addr", c.RemoteAddr())
 			rNonce, err := icrypto.GenerateNonce()
 			debug.AssertNil(err, "Failed to generate nonce: %s", err)
@@ -170,6 +174,21 @@ func (s *Server) listen() {
 			debug.AssertNil(err, "Failed to write HMAC to %s: %s", conn.RemoteAddr(), err)
 			debug.Assert(n == icrypto.MAC_LENGTH, "Failed to write full HMAC to %s: wrote %d bytes, expected %d", conn.RemoteAddr(), n, icrypto.MAC_LENGTH)
 			slog.Info("Handshake with client sent", "addr", conn.RemoteAddr())
+
+			// HandshakeACK <<<< Client
+			rrNonce, err := icrypto.ReadNonce(c)
+			debug.AssertNil(err, "Failed to read nonce from %s: %s", c.RemoteAddr(), err)
+			rrHmac, err := icrypto.ReadHMAC(c)
+			debug.AssertNil(err, "Failed to read HMAC from %s: %s", c.RemoteAddr(), err)
+			debug.Assert(icrypto.VerifyMAC([]byte(cookie), rrNonce, rrHmac), "Bad handshake invalid HMAC from %s", c.RemoteAddr())
+
+			// Ensure nonces and HMACs are not equal
+			debug.Refute(subtle.ConstantTimeCompare(nonce[:], rNonce[:]) == 1, "Bad handshake response nonce cannot match nonce sent to %s", conn.RemoteAddr())
+			debug.Refute(subtle.ConstantTimeCompare(nonce[:], rrNonce[:]) == 1, "Bad handshake response nonce cannot match nonce sent to %s", conn.RemoteAddr())
+			debug.Refute(subtle.ConstantTimeCompare(rNonce[:], rrNonce[:]) == 1, "Bad handshake response nonce cannot match nonce sent to %s", conn.RemoteAddr())
+			debug.Refute(subtle.ConstantTimeCompare(hmac[:], rHmac[:]) == 1, "Bad handshake response HMAC cannot match HMAC sent to %s", conn.RemoteAddr())
+			debug.Refute(subtle.ConstantTimeCompare(hmac[:], rrHmac[:]) == 1, "Bad handshake response HMAC cannot match HMAC sent to %s", conn.RemoteAddr())
+			debug.Refute(subtle.ConstantTimeCompare(rHmac[:], rrHmac[:]) == 1, "Bad handshake response HMAC cannot match HMAC sent to %s", conn.RemoteAddr())
 
 			// Confirm <<<< Client
 			var ok [1]byte

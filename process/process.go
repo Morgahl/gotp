@@ -7,7 +7,13 @@ import (
 
 	"github.com/Morgahl/gotp"
 	"github.com/Morgahl/gotp/debug"
+	"github.com/Morgahl/gotp/internal/pid"
 )
+
+type PID = pid.PID
+
+func ComparePID(a, b PID) int { return pid.Compare(a, b) }
+func PIDZero() PID            { return pid.Zero() }
 
 type Startable interface {
 	Start(opts ...SpawnOpt) (PID, error)
