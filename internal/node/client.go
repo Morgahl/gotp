@@ -32,40 +32,48 @@ func NewClient(server gotp.Atom, addr string, cookie gotp.Atom, cert tls.Certifi
 	}
 }
 
-func (c *Client) Connect() error {
-	if c.rpcClient != nil {
-		return nil // Already connected
-	}
+func (c *Client) Connect() {
 	slog.Info("Dialing server", "addr", c.addr, "server", c.server)
 	conn, err := icrypto.Dial(c.addr, c.cert)
-	if err != nil {
-		slog.Error("Failed to dial server", "addr", c.addr, "error", err)
-		return err
-	}
+	debug.AssertNil(err, "Failed to dial server %s: %s", c.addr, err)
 	slog.Info("Connected to server", "addr", c.addr, "server", c.server)
 
 	// HANDSHAKE
-	defer func() {
-		if err := debug.Recover(recover(), "Client handshake failed", nil); err != nil {
-			slog.Error("Client handshake failed", "error", err)
-			debug.AssertNil(conn.Close(), "Failed to close connection to %s: %s", conn.RemoteAddr(), err)
-		}
-	}()
-	slog.Info("Performing handshake with server", "addr", c.addr)
+
+	// Handshake >>>> Server
+	slog.Info("Building handshake for server", "addr", c.addr)
 	nonce, err := icrypto.GenerateNonce()
 	debug.AssertNil(err, "Failed to generate nonce: %s", err)
-	mac := icrypto.ComputeHMAC([]byte(c.cookie), nonce)
-	n, err := conn.Write(nonce)
+	hmac := icrypto.ComputeHMAC([]byte(c.cookie), nonce)
+	n, err := conn.Write(nonce[:])
 	debug.AssertNil(err, "Failed to write nonce to %s: %s", conn.RemoteAddr(), err)
 	debug.Assert(n == icrypto.NONCE_LENGTH, "Failed to write full nonce to %s: wrote %d bytes, expected %d", conn.RemoteAddr(), n, icrypto.NONCE_LENGTH)
-	n, err = conn.Write(mac)
+	n, err = conn.Write(hmac[:])
 	debug.AssertNil(err, "Failed to write HMAC to %s: %s", conn.RemoteAddr(), err)
 	debug.Assert(n == icrypto.MAC_LENGTH, "Failed to write full HMAC to %s: wrote %d bytes, expected %d", conn.RemoteAddr(), n, icrypto.MAC_LENGTH)
+	slog.Info("Handshake with server sent", "addr", c.addr)
 
-	slog.Info("Handshake with server completed", "addr", c.addr)
+	// Handshake <<<< Server
+	rNonce, err := icrypto.ReadNonce(conn)
+	debug.AssertNil(err, "Failed to read rNonce from %s: %s", conn.RemoteAddr(), err)
+	rHmac, err := icrypto.ReadHMAC(conn)
+	debug.AssertNil(err, "Failed to read HMAC from %s: %s", conn.RemoteAddr(), err)
+	debug.Assert(icrypto.VerifyMAC([]byte(c.cookie), rNonce, rHmac), "Bad handshake invalid HMAC from %s", conn.RemoteAddr())
+
+	// Confirm >>>> Server
+	_, err = conn.Write([]byte{1})
+	debug.AssertNil(err, "Failed to write handshake confirmation to %s: %s", conn.RemoteAddr(), err)
+
+	// Confirm <<<< Server
+	var ok [1]byte
+	_, err = conn.Read(ok[:])
+	debug.AssertNil(err, "Failed to read handshake confirmation from %s: %s", conn.RemoteAddr(), err)
+	debug.Assert(ok[0] == 1, "Handshake confirmation failed from %s: expected 1, got %d", conn.RemoteAddr(), ok[0])
+	slog.Info("Handshake with server confirmed", "addr", c.addr)
+
+	// Create RPC client
 	c.rpcClient = rpc.NewClient(conn)
 	slog.Info("RPC client created", "addr", c.addr, "server", c.server)
-	return nil
 }
 
 func (c *Client) Close() error {

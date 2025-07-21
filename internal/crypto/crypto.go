@@ -11,7 +11,6 @@ import (
 	"encoding/pem"
 	"io"
 	"math/big"
-	"net"
 	"time"
 
 	"github.com/Morgahl/gotp"
@@ -22,13 +21,13 @@ const (
 	MAC_LENGTH   = 64
 )
 
-func GenerateNonce() ([]byte, error) {
-	nonce := make([]byte, NONCE_LENGTH)
-	_, err := rand.Read(nonce)
+func GenerateNonce() ([NONCE_LENGTH]byte, error) {
+	var nonce [NONCE_LENGTH]byte
+	_, err := rand.Read(nonce[:])
 	return nonce, err
 }
 
-func ReadNonce(conn net.Conn) ([NONCE_LENGTH]byte, error) {
+func ReadNonce(conn io.Reader) ([NONCE_LENGTH]byte, error) {
 	var nonce [NONCE_LENGTH]byte
 	n, err := conn.Read(nonce[:])
 	if err != nil {
@@ -40,13 +39,15 @@ func ReadNonce(conn net.Conn) ([NONCE_LENGTH]byte, error) {
 	return nonce, nil
 }
 
-func ComputeHMAC(psk, nonce []byte) []byte {
+func ComputeHMAC(psk []byte, nonce [NONCE_LENGTH]byte) [MAC_LENGTH]byte {
 	hmac := hmac.New(sha512.New, psk)
-	hmac.Write(nonce)
-	return hmac.Sum(nil)
+	hmac.Write(nonce[:])
+	var hmacBytes [MAC_LENGTH]byte
+	_ = hmac.Sum(hmacBytes[:0])
+	return hmacBytes
 }
 
-func ReadHMAC(conn net.Conn) ([MAC_LENGTH]byte, error) {
+func ReadHMAC(conn io.Reader) ([MAC_LENGTH]byte, error) {
 	var mac [MAC_LENGTH]byte
 	n, err := io.ReadFull(conn, mac[:])
 	if err != nil {
@@ -58,9 +59,9 @@ func ReadHMAC(conn net.Conn) ([MAC_LENGTH]byte, error) {
 	return mac, nil
 }
 
-func VerifyMAC(psk, nonce, receivedMAC []byte) bool {
+func VerifyMAC(psk []byte, nonce, receivedMAC [MAC_LENGTH]byte) bool {
 	expectedMAC := ComputeHMAC(psk, nonce)
-	return hmac.Equal(expectedMAC, receivedMAC)
+	return hmac.Equal(expectedMAC[:], receivedMAC[:])
 }
 
 func GenerateSelfSignedCert(host gotp.Atom, cookie gotp.Atom) (tls.Certificate, error) {

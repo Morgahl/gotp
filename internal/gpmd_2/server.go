@@ -28,7 +28,7 @@ func NewServer(ctx ctx.Cancellable) *Server {
 	nonce, err := icrypto.GenerateNonce()
 	debug.AssertNil(err, "Failed to generate nonce: %s", err)
 
-	cert, err := icrypto.GenerateSelfSignedCert("gpmd", gotp.Atom(string(nonce)))
+	cert, err := icrypto.GenerateSelfSignedCert("gpmd", gotp.Atom(string(nonce[:])))
 	debug.AssertNil(err, "Failed to generate self-signed certificate: %s", err)
 
 	s := &Server{
