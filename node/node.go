@@ -1,10 +1,8 @@
 package node
 
-type Node struct {
-	name string
-	host string
-}
+import "github.com/Morgahl/gotp"
 
-func (n Node) String() string {
-	return n.name + "@" + n.host
+type Node struct {
+	Name   gotp.Atom
+	Cookie Cookie
 }
