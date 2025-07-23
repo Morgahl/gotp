@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/Morgahl/gotp/application"
-	"github.com/Morgahl/gotp/debug"
+	"github.com/Morgahl/gotp/dbg"
 	"github.com/Morgahl/gotp/internal/ctx"
 	"github.com/Morgahl/gotp/process"
 	"github.com/Morgahl/gotp/supervisor"
@@ -45,7 +45,7 @@ func _init(initCtx ctx.Cancellable, app application.Application, wg *sync.WaitGr
 		pctx.TrapExit(true)
 		defer wg.Done()
 		defer func() {
-			reason = debug.Recover(recover(), "grts._init", reason)
+			reason = dbg.Recover(recover(), "grts._init", reason)
 			initCtx.Cancel(reason)
 		}()
 

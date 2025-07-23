@@ -1,4 +1,4 @@
-package debug
+package dbg
 
 import (
 	"errors"
@@ -19,22 +19,21 @@ type Recovered struct {
 	stack   []byte
 }
 
-func Drop(r any) {}
-
+// Recover expects the first arguement to be the result of calling `recover()`. If the result is nil, it returns the
+// provided error. If the result is not nil, it constructs a [Recovered] error containing the panic information merged
+// with the provided message, error, and the stack trace of the point of recovery.
 func Recover(r any, message string, err error) error {
 	if r == nil {
 		return err
 	}
-	rec := Recovered{message: message, err: err}
+	rec := Recovered{message: message, err: err, stack: debug.Stack()}
 	switch v := r.(type) {
 	case Thrown:
 		rec.r = v
 	case error:
 		rec.r = fmt.Errorf("%s: panic error: %w", message, v)
-		rec.stack = debug.Stack()
 	default:
 		rec.r = fmt.Errorf("%s: panic unknown: %v", message, v)
-		rec.stack = debug.Stack()
 	}
 	return rec
 }

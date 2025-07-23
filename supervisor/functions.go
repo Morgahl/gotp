@@ -1,7 +1,7 @@
 package supervisor
 
 import (
-	"github.com/Morgahl/gotp/debug"
+	"github.com/Morgahl/gotp/dbg"
 	"github.com/Morgahl/gotp/gen_server"
 	"github.com/Morgahl/gotp/process"
 )
@@ -12,7 +12,7 @@ func StartChild[S process.Sendable](supervisor S, child Supervisable) process.Me
 		case AlreadyStarted, process.PID, error:
 			return resp
 		default:
-			debug.Throw("StartChild: unexpected response type %T", resp)
+			dbg.Throw("StartChild: unexpected response type %T", resp)
 		}
 	}
 	return nil
@@ -24,7 +24,7 @@ func ContextStartChild[S process.Sendable](pctx process.Context, supervisor S, c
 		case AlreadyStarted, process.PID, error:
 			return resp
 		default:
-			debug.Throw("ContextStartChild: unexpected response type %T", resp)
+			dbg.Throw("ContextStartChild: unexpected response type %T", resp)
 		}
 	}
 	return nil
@@ -35,7 +35,7 @@ func StopChild[S process.Sendable](supervisor S, pid process.PID) process.Messag
 		switch resp := resp.(type) {
 		case bool:
 		default:
-			debug.Throw("StopChild: unexpected response type %T", resp)
+			dbg.Throw("StopChild: unexpected response type %T", resp)
 		}
 	}
 	return nil

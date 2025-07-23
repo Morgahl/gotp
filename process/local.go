@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/Morgahl/gotp"
-	"github.com/Morgahl/gotp/debug"
+	"github.com/Morgahl/gotp/dbg"
 	"github.com/Morgahl/gotp/internal/pid"
 )
 
@@ -55,7 +55,7 @@ func registerPID(pid PID, ref Ref) func() {
 	pidRegistryMu.Lock()
 	if _, exists := pidRegistry[pid]; exists {
 		pidRegistryMu.Unlock()
-		debug.Throw("process with PID %s already registered", pid)
+		dbg.Throw("process with PID %s already registered", pid)
 	}
 
 	pidRegistry[pid] = ref
@@ -96,7 +96,7 @@ func registerNamed(name gotp.Atom, ref Ref) func() {
 	nameRegistryMu.Lock()
 	if _, exists := nameRegistry[name]; exists {
 		nameRegistryMu.Unlock()
-		debug.Throw("process with name %s already registered", name)
+		dbg.Throw("process with name %s already registered", name)
 	}
 	nameRegistry[name] = ref
 	nameRegistryMu.Unlock()

@@ -1,4 +1,4 @@
-package debug
+package dbg
 
 import (
 	"fmt"
@@ -12,19 +12,19 @@ var (
 )
 
 type Thrown struct {
-	message string
-	stack   string
+	Message string
+	Stack   string
 }
 
 func (p Thrown) Error() string {
-	return fmt.Sprintf("%s\n\n%s", p.message, p.stack)
+	return fmt.Sprintf("%s\n\n%s", p.Message, p.Stack)
 }
 
 func (p Thrown) LogValue() slog.Value {
 	return slog.GroupValue(
 		slog.String("type", thrownTypeString),
-		slog.String("message", p.message),
-		slog.Any("stack", p.stack))
+		slog.String("message", p.Message),
+		slog.String("stack", p.Stack))
 }
 
 func Throw(format string, args ...any) {
@@ -33,11 +33,11 @@ func Throw(format string, args ...any) {
 
 func throw(skip int, format string, args ...any) {
 	panic(Thrown{
-		message: fmt.Sprintf(format, args...),
-		stack:   callerStack(skip + 3)})
+		Message: fmt.Sprintf(format, args...),
+		Stack:   CallerStack(skip + 3)})
 }
 
-func callerStack(skip int) string {
+func CallerStack(skip int) string {
 	const depth = 36
 	var pcs [depth]uintptr
 	n := runtime.Callers(skip, pcs[:])

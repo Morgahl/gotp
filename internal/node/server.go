@@ -9,80 +9,78 @@ import (
 	"net/rpc"
 
 	"github.com/Morgahl/gotp"
-	"github.com/Morgahl/gotp/debug"
 
+	"github.com/Morgahl/gotp/assert"
 	icrypto "github.com/Morgahl/gotp/internal/crypto"
 	gpmd "github.com/Morgahl/gotp/internal/gpmd_2"
 )
 
+var (
+	local *Server
+)
+
 type Server struct {
 	name       Name
-	cookie     gotp.Atom
-	local      *Local
+	cookie     Cookie
 	rpcServer  *rpc.Server
 	cert       tls.Certificate
 	gpmdClient *gpmd.Client
 	listener   net.Listener
+	known      map[gotp.Atom]Cookie
 	hidden     map[gotp.Atom]*Client
 	visible    map[gotp.Atom]*Client
 }
 
-func NewServer(sname gotp.Atom, cookie gotp.Atom) *Server {
-	debug.Assert(len(cookie) >= 64, "Cookie must be at least 64 bytes long")
-	name, err := ParseName(sname)
-	debug.AssertNil(err, "Invalid node name: %s", err)
+func NewServer(sname gotp.Atom, cookie Cookie) *Server {
+	assert.NilPtr(local, "Server already initialized")
+	assert.GreaterOrEq(len(cookie), 64, "Cookie must be at least 64 bytes long")
+	assert.NotZero(sname, "Server name cannot be empty")
+	name := assert.Ok(ParseName(sname))("Invalid node name: %s")
 	l := newLocal(name.Name, cookie)
 	rpcServer := rpc.NewServer()
-	debug.AssertNil(rpcServer.Register(l), "Failed to register local node")
+	assert.NilF(rpcServer.Register(l), "Failed to register local node: %s")
+	cert := assert.OkF(icrypto.GenerateSelfSignedCert(name.App, gotp.Atom(cookie)))("Failed to generate self-signed certificate: %s")
 
-	cert, err := icrypto.GenerateSelfSignedCert(name.App, cookie)
-	debug.AssertNil(err, "Failed to generate self-signed certificate: %s", err)
-
-	s := &Server{
+	local = &Server{
 		name:      name,
 		cookie:    cookie,
-		local:     l,
 		cert:      cert,
 		rpcServer: rpcServer,
+		known:     make(map[gotp.Atom]Cookie),
 		hidden:    make(map[gotp.Atom]*Client),
 		visible:   make(map[gotp.Atom]*Client),
 	}
 
-	return s
+	return local
 }
 
 func (s *Server) Start() {
-	debug.AssertNil(s.listener, "Server already started")
+	assert.Nil(s.listener, "Server already started")
 	slog.Info("Starting node server", "sname", s.name)
 	s.gpmdClient = gpmd.NewClient(s.cert)
 	slog.Info("Connecting to GPMD", "bind", gpmd.DEFAULT_BIND)
-	err := s.gpmdClient.Connect()
-	slog.Info("Connected to GPMD", "err", err)
-	debug.AssertNil(err, "Failed to connect to GPMD: %s", err)
-	debug.AssertNil(s.listener, "Server already started")
-	s.listener, err = icrypto.Listen(s.name.Host, s.cert)
-	debug.AssertNil(err, "Failed to start listener: %s", err)
+	assert.NilF(s.gpmdClient.Connect(), "Failed to connect to GPMD: %s")
+	assert.Nil(s.listener, "Server already started")
+	s.listener = assert.OkF(icrypto.Listen(s.name.Host, s.cert))("Failed to start listener: %s")
 	slog.Info("Node server started", "sname", s.name.App, "bind", s.listener.Addr().String())
-	n, err := gpmd.NewNode(s.name.Name, string(s.name.App), s.listener.Addr().String())
-	debug.AssertNil(err, "Failed to create GPMD node: %s", err)
+	n := assert.OkF(gpmd.NewNode(s.name.Name, s.name.App, s.listener.Addr().String()))("Failed to create GPMD node: %s")
 	slog.Info("Registering with GPMD", "node.name", n.Name, "node.host", n.Host)
-	err = s.gpmdClient.Register(n)
-	slog.Info("Registered with GPMD", "node", n, "err", err)
-	debug.AssertNil(err, "Failed to register with GPMD: %s", err)
+	assert.NilF(s.gpmdClient.Register(n), "Failed to register with GPMD: %s")
+	slog.Info("Registered with GPMD", "node", n)
 	go s.listen()
 }
 
 func (s *Server) Stop() {
-	debug.AssertNotNil(s.listener, "Server not started")
-	debug.AssertNil(s.gpmdClient.Close(), "Failed to close GPMD client")
+	assert.NotNil(s.listener, "Server not started")
+	assert.Nil(s.gpmdClient.Close(), "Failed to close GPMD client")
 	s.gpmdClient = nil
-	debug.AssertNil(s.listener.Close(), "Failed to close listener")
+	assert.Nil(s.listener.Close(), "Failed to close listener")
 	slog.Info("Stopping node server", "sname", s.name)
 	s.listener = nil
 }
 
-func (s *Server) Connect(server gotp.Atom, cookie gotp.Atom, visible bool) error {
-	debug.AssertNotEqual(server, s.name.Name, "Cannot connect to self")
+func (s *Server) Connect(server gotp.Atom, cookie Cookie, visible bool) error {
+	assert.NotEqual(server, s.name.Name, "Cannot connect to self")
 	name, err := ParseName(server)
 	if err != nil {
 		return fmt.Errorf("invalid node name %s: %w", server, err)
@@ -111,6 +109,7 @@ func (s *Server) Connect(server gotp.Atom, cookie gotp.Atom, visible bool) error
 		s.hidden[server] = client
 		slog.Info("Added hidden node", "node", node, "server", server)
 	}
+	s.known[server] = cookie
 	slog.Info("Node connected", "node", node, "server", server)
 	return nil
 }
@@ -127,82 +126,86 @@ func (s *Server) Disconnect(server gotp.Atom) error {
 	return fmt.Errorf("not connected to %s", server)
 }
 
-func (s *Server) ListVisible() []gotp.Atom {
-	nodes := make([]gotp.Atom, 0, len(s.visible))
-	for name := range s.visible {
-		nodes = append(nodes, name)
+func (s *Server) List(name gotp.Atom) ([]gotp.Atom, error) {
+	switch name {
+	case "", "visible":
+		nodes := make([]gotp.Atom, 0, len(s.visible))
+		for name := range s.visible {
+			nodes = append(nodes, name)
+		}
+		return nodes, nil
+	case "hidden":
+		nodes := make([]gotp.Atom, 0, len(s.hidden))
+		for name := range s.hidden {
+			nodes = append(nodes, name)
+		}
+		return nodes, nil
+	case "this":
+		return []gotp.Atom{s.name.Name}, nil
+	case "connected":
+		nodes := make([]gotp.Atom, 0, len(s.visible)+len(s.hidden)+1)
+		for name := range s.visible {
+			nodes = append(nodes, name)
+		}
+		for name := range s.hidden {
+			nodes = append(nodes, name)
+		}
+		nodes = append(nodes, s.name.Name)
+		return nodes, nil
 	}
-	return nodes
-}
-
-func (s *Server) ListHidden() []gotp.Atom {
-	nodes := make([]gotp.Atom, 0, len(s.hidden))
-	for name := range s.hidden {
-		nodes = append(nodes, name)
-	}
-	return nodes
+	return nil, fmt.Errorf("unknown list type %s", name)
 }
 
 func (s *Server) listen() {
 	for {
-		conn, err := s.listener.Accept()
-		debug.AssertNil(err, "Failed to accept connection from %s: %s", conn.RemoteAddr(), err)
+		conn := assert.OkF(s.listener.Accept())("Failed to accept connection on %s: %s", s.listener.Addr())
 		// TODO: FUTURE HOME OF A LINKED PROCESS SPAWN INSTEAD OF THIS GO ROUTINE
 		go func(c net.Conn, cookie Cookie) {
-			defer func() {
-				debug.AssertNil(conn.Close(), "Failed to close connection to %s: %s", conn.RemoteAddr(), err)
-			}()
+			defer c.Close()
 
 			// HANDSHAKE
 
 			// HandshakeSYN <<<< Client
-			nonce, err := icrypto.ReadNonce(c)
-			debug.AssertNil(err, "Failed to read nonce from %s: %s", c.RemoteAddr(), err)
-			hmac, err := icrypto.ReadHMAC(c)
-			debug.AssertNil(err, "Failed to read HMAC from %s: %s", c.RemoteAddr(), err)
-			debug.Assert(icrypto.VerifyMAC([]byte(cookie), nonce, hmac), "Bad handshake invalid HMAC from %s", c.RemoteAddr())
+			nonce := assert.OkF(icrypto.ReadNonce(c))("Failed to read nonce from %s: %s", c.RemoteAddr())
+			hmac := assert.OkF(icrypto.ReadHMAC(c))("Failed to read HMAC from %s: %s", c.RemoteAddr())
+			assert.AssertF(icrypto.VerifyMAC([]byte(cookie), nonce, hmac), "Bad handshake invalid HMAC from %s", c.RemoteAddr())
 
 			// HandshakeSYNACK >>>> Client
 			slog.Info("Building handshake response for client", "addr", c.RemoteAddr())
-			rNonce, err := icrypto.GenerateNonce()
-			debug.AssertNil(err, "Failed to generate nonce: %s", err)
-			rHmac := icrypto.ComputeHMAC([]byte(s.cookie), rNonce)
-			n, err := conn.Write(rNonce[:])
-			debug.AssertNil(err, "Failed to write nonce to %s: %s", conn.RemoteAddr(), err)
-			debug.Assert(n == icrypto.NONCE_LENGTH, "Failed to write full nonce to %s: wrote %d bytes, expected %d", conn.RemoteAddr(), n, icrypto.NONCE_LENGTH)
-			n, err = conn.Write(rHmac[:])
-			debug.AssertNil(err, "Failed to write HMAC to %s: %s", conn.RemoteAddr(), err)
-			debug.Assert(n == icrypto.MAC_LENGTH, "Failed to write full HMAC to %s: wrote %d bytes, expected %d", conn.RemoteAddr(), n, icrypto.MAC_LENGTH)
+			rNonce := assert.OkF(icrypto.GenerateNonce())("Failed to generate nonce: %s")
+			rHmac := icrypto.ComputeHMAC([]byte(cookie), rNonce)
+			rN := assert.OkF(c.Write(rNonce[:]))("Failed to write nonce to %s: %s", c.RemoteAddr())
+			assert.EqualF(rN, icrypto.NONCE_LENGTH, "Failed to write full nonce to %s: wrote %d bytes, expected %d", c.RemoteAddr())
+			rH := assert.OkF(c.Write(rHmac[:]))("Failed to write HMAC to %s: %s", c.RemoteAddr())
+			assert.EqualF(rH, icrypto.MAC_LENGTH, "Failed to write full HMAC to %s: wrote %d bytes, expected %d", c.RemoteAddr())
 			slog.Info("Handshake with client sent", "addr", conn.RemoteAddr())
 
 			// HandshakeACK <<<< Client
-			rrNonce, err := icrypto.ReadNonce(c)
-			debug.AssertNil(err, "Failed to read nonce from %s: %s", c.RemoteAddr(), err)
-			rrHmac, err := icrypto.ReadHMAC(c)
-			debug.AssertNil(err, "Failed to read HMAC from %s: %s", c.RemoteAddr(), err)
-			debug.Assert(icrypto.VerifyMAC([]byte(cookie), rrNonce, rrHmac), "Bad handshake invalid HMAC from %s", c.RemoteAddr())
+			rrNonce := assert.OkF(icrypto.ReadNonce(c))("Failed to read nonce from %s: %s", c.RemoteAddr())
+			rrHmac := assert.OkF(icrypto.ReadHMAC(c))("Failed to read HMAC from %s: %s", c.RemoteAddr())
+			assert.AssertF(icrypto.VerifyMAC([]byte(cookie), rrNonce, rrHmac), "Bad handshake invalid HMAC from %s", c.RemoteAddr())
 
 			// Ensure nonces and HMACs are not equal
-			debug.Refute(subtle.ConstantTimeCompare(nonce[:], rNonce[:]) == 1, "Bad handshake response nonce cannot match nonce sent to %s", conn.RemoteAddr())
-			debug.Refute(subtle.ConstantTimeCompare(nonce[:], rrNonce[:]) == 1, "Bad handshake response nonce cannot match nonce sent to %s", conn.RemoteAddr())
-			debug.Refute(subtle.ConstantTimeCompare(rNonce[:], rrNonce[:]) == 1, "Bad handshake response nonce cannot match nonce sent to %s", conn.RemoteAddr())
-			debug.Refute(subtle.ConstantTimeCompare(hmac[:], rHmac[:]) == 1, "Bad handshake response HMAC cannot match HMAC sent to %s", conn.RemoteAddr())
-			debug.Refute(subtle.ConstantTimeCompare(hmac[:], rrHmac[:]) == 1, "Bad handshake response HMAC cannot match HMAC sent to %s", conn.RemoteAddr())
-			debug.Refute(subtle.ConstantTimeCompare(rHmac[:], rrHmac[:]) == 1, "Bad handshake response HMAC cannot match HMAC sent to %s", conn.RemoteAddr())
+			assert.RefuteF(subtle.ConstantTimeCompare(nonce[:], rNonce[:]) == 1, "Bad handshake response nonce cannot match nonce sent to %s", conn.RemoteAddr())
+			assert.RefuteF(subtle.ConstantTimeCompare(nonce[:], rrNonce[:]) == 1, "Bad handshake response nonce cannot match nonce sent to %s", conn.RemoteAddr())
+			assert.RefuteF(subtle.ConstantTimeCompare(rNonce[:], rrNonce[:]) == 1, "Bad handshake response nonce cannot match nonce sent to %s", conn.RemoteAddr())
+			assert.RefuteF(subtle.ConstantTimeCompare(hmac[:], rHmac[:]) == 1, "Bad handshake response HMAC cannot match HMAC sent to %s", conn.RemoteAddr())
+			assert.RefuteF(subtle.ConstantTimeCompare(hmac[:], rrHmac[:]) == 1, "Bad handshake response HMAC cannot match HMAC sent to %s", conn.RemoteAddr())
+			assert.RefuteF(subtle.ConstantTimeCompare(rHmac[:], rrHmac[:]) == 1, "Bad handshake response HMAC cannot match HMAC sent to %s", conn.RemoteAddr())
+
+			// Confirm >>>> Client
+			cN := assert.OkF(c.Write([]byte{1}))("Failed to write handshake confirmation to %s: %s", conn.RemoteAddr())
+			assert.EqualF(cN, 1, "Failed to write handshake confirmation to %s: wrote %d bytes, expected %d", conn.RemoteAddr())
 
 			// Confirm <<<< Client
 			var ok [1]byte
-			_, err = conn.Read(ok[:])
-			debug.AssertNil(err, "Failed to read handshake confirmation from %s: %s", conn.RemoteAddr(), err)
-			debug.Assert(ok[0] == 1, "Handshake confirmation failed from %s: expected 1, got %d", conn.RemoteAddr(), ok[0])
-
-			// Confirm >>>> Client
-			_, err = conn.Write([]byte{1})
-			debug.AssertNil(err, "Failed to write handshake confirmation to %s: %s", conn.RemoteAddr(), err)
-			slog.Info("Handshake with client confirmed", "addr", conn.RemoteAddr())
+			sCN := assert.OkF(c.Read(ok[:]))("Failed to read handshake confirmation from %s: %s", conn.RemoteAddr())
+			assert.EqualF(sCN, 1, "Handshake confirmation failed from %s: expected %d, got %d", conn.RemoteAddr())
+			assert.EqualF(ok[0], 1, "Handshake confirmation failed from %s: expected %d, got %d", conn.RemoteAddr())
+			slog.Info("Handshake with client confirmed", "addr", c.RemoteAddr())
 
 			// Create RPC server
 			s.rpcServer.ServeConn(c)
-		}(conn, s.local.Cookie)
+		}(conn, s.cookie)
 	}
 }

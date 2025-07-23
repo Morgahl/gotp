@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/Morgahl/gotp"
-	"github.com/Morgahl/gotp/debug"
+	"github.com/Morgahl/gotp/assert"
 	"github.com/Morgahl/gotp/internal/pid"
 	"github.com/Morgahl/gotp/process"
 )
@@ -25,11 +25,9 @@ func main() {
 func validate[T comparable](t T) {
 	var buf bytes.Buffer
 	var afterT T
-	err := gob.NewEncoder(&buf).Encode(t)
-	debug.AssertNil(err, "encoding failed: %v", err)
-	err = gob.NewDecoder(&buf).Decode(&afterT)
-	debug.AssertNil(err, "decoding failed: %v", err)
-	debug.AssertEqual(t, afterT, "encode decode mismatch:\nbefore:\n\t%v\nafter\n\t%v\n\n", t, afterT)
+	assert.NilF(gob.NewEncoder(&buf).Encode(t), "encoding failed: %v")
+	assert.NilF(gob.NewDecoder(&buf).Decode(&afterT), "decoding failed: %v")
+	assert.EqualF(t, afterT, "encode decode mismatch:\nbefore:\n\t%v\nafter\n\t%v")
 	fmt.Printf("Encoded and decoded successfully: %T %v %v\n", t, t, afterT)
 }
 

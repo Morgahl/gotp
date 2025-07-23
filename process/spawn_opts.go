@@ -2,7 +2,7 @@ package process
 
 import (
 	"github.com/Morgahl/gotp"
-	"github.com/Morgahl/gotp/debug"
+	"github.com/Morgahl/gotp/assert"
 )
 
 type SpawnOpt func(*process)
@@ -15,7 +15,7 @@ func Link(ref Ref) SpawnOpt {
 	})
 	// TODO: A send like this might deadlock during building as the process is not receiving yet
 	return func(p *process) {
-		debug.Assert(p.state == STARTING_STATE, "process must be in STARTING_STATE for spawn options to be applied")
+		assert.Equal(p.state, STARTING_STATE, "process must be in STARTING_STATE for spawn options to be applied")
 		p.send(s)
 	}
 }
@@ -29,7 +29,7 @@ func Monitored(ref Ref) SpawnOpt {
 	})
 	// TODO: A send like this might deadlock during building as the process is not receiving yet
 	return func(p *process) {
-		debug.Assert(p.state == STARTING_STATE, "process must be in STARTING_STATE for spawn options to be applied")
+		assert.Equal(p.state, STARTING_STATE, "process must be in STARTING_STATE for spawn options to be applied")
 		p.send(s)
 	}
 }
@@ -39,7 +39,7 @@ func MailboxSize(size int) SpawnOpt {
 		size = MAILBOX_SIZE
 	}
 	return func(p *process) {
-		debug.Assert(p.state == STARTING_STATE, "process must be in STARTING_STATE for spawn options to be applied")
+		assert.Equal(p.state, STARTING_STATE, "process must be in STARTING_STATE for spawn options to be applied")
 		if p.mailbox == nil {
 			p.mailbox = make([]Message, 0, size)
 		} else {
@@ -56,7 +56,7 @@ func ChannelSize(size int) SpawnOpt {
 		size = CHANNEL_SIZE
 	}
 	return func(p *process) {
-		debug.Assert(p.state == STARTING_STATE, "process must be in STARTING_STATE for spawn options to be applied")
+		assert.Equal(p.state, STARTING_STATE, "process must be in STARTING_STATE for spawn options to be applied")
 		if cap(p.signalChan) < size {
 			oldChan := p.signalChan
 			p.signalChan = make(chan signal[Message], size)
@@ -72,8 +72,8 @@ func ChannelSize(size int) SpawnOpt {
 
 func Named(name gotp.Atom) SpawnOpt {
 	return func(p *process) {
-		debug.Assert(p.state == STARTING_STATE, "process must be in STARTING_STATE for spawn options to be applied")
-		debug.Assert(p.name == "", "process name must be empty when setting it")
+		assert.Equal(p.state, STARTING_STATE, "process must be in STARTING_STATE for spawn options to be applied")
+		assert.Equal(p.name, "", "process name must be empty when setting it")
 		p.name = name
 	}
 }

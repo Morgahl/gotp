@@ -1,7 +1,7 @@
 package gen_server
 
 import (
-	"github.com/Morgahl/gotp/debug"
+	"github.com/Morgahl/gotp/dbg"
 	"github.com/Morgahl/gotp/process"
 )
 
@@ -32,7 +32,7 @@ func (s *server[I, Cl, R, Cs, Ct]) loop(initArg I, sig chan error) process.RunFn
 		var cont Continue[Ct]
 		var resp Response[R]
 		defer func() {
-			reason = debug.Recover(recover(), "server.loop", reason)
+			reason = dbg.Recover(recover(), "server.loop", reason)
 			reason = s.serverable.Terminate(pctx, reason)
 			if sig != nil && len(sig) < cap(sig) {
 				sig <- reason
@@ -63,7 +63,7 @@ func (s *server[I, Cl, R, Cs, Ct]) loop(initArg I, sig chan error) process.RunFn
 			if err != nil {
 				return err
 			} else if !ok {
-				debug.Throw("server.loop: Process message queue closed unexpectedly for PID %s", pctx.PID())
+				dbg.Throw("server.loop: Process message queue closed unexpectedly for PID %s", pctx.PID())
 			}
 			switch msg := msg.(type) {
 			case stop:

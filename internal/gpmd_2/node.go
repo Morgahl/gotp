@@ -10,11 +10,11 @@ import (
 
 type Node struct {
 	Name gotp.Atom
-	App  string
+	App  gotp.Atom
 	Host string
 }
 
-func NewNode(name gotp.Atom, app string, host string) (Node, error) {
+func NewNode(name gotp.Atom, app gotp.Atom, host string) (Node, error) {
 	addr, err := netip.ParseAddrPort(host)
 	if err != nil {
 		return Node{}, fmt.Errorf("failed to parse host %q: %w", host, err)
