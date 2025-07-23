@@ -1,7 +1,7 @@
 package process
 
 import (
-	"runtime"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -28,7 +28,7 @@ var (
 	removedNames   int
 
 	lastGC     = time.Now()
-	gcInterval = 60 * time.Second
+	gcInterval = 10 * time.Second
 )
 
 func init() {
@@ -64,11 +64,6 @@ func registerPID(pid PID, ref Ref) func() {
 		pidRegistryMu.Lock()
 		delete(pidRegistry, pid)
 		removedPIDs++
-		if removedPIDs*10 > len(pidRegistry) {
-			pidRegistryMu.Unlock()
-			gcPID()
-			return
-		}
 		pidRegistryMu.Unlock()
 	}
 }
@@ -104,11 +99,6 @@ func registerNamed(name gotp.Atom, ref Ref) func() {
 		nameRegistryMu.Lock()
 		delete(nameRegistry, name)
 		removedNames++
-		if removedNames*4 > len(nameRegistry) {
-			nameRegistryMu.Unlock()
-			gcName()
-			return
-		}
 		nameRegistryMu.Unlock()
 	}
 }
@@ -138,24 +128,33 @@ func gcWaiter() {
 			time.Sleep(gcInterval - since)
 			continue
 		}
-		gc()
+		started := time.Now()
+		pids, names := gc()
+		slog.Warn("Garbage collection performed", slog.Int("pids", pids), slog.Int("names", names), slog.Duration("took", time.Since(started)))
 	}
 }
 
-func gc() {
+func gc() (pids, names int) {
 	if time.Since(lastGC) < gcInterval {
 		return
 	}
 
-	gcPID()
-	gcName()
+	pids = gcPID()
+	names = gcName()
 
 	lastGC = time.Now()
-	runtime.GC()
+	// if pids+names > 10_000 {
+	// 	runtime.GC()
+	// }
+	return
 }
 
-func gcPID() {
+func gcPID() (count int) {
 	pidRegistryMu.Lock()
+	if removedPIDs == 0 {
+		pidRegistryMu.Unlock()
+		return count
+	}
 	newRegistry := make(map[PID]Ref, max(len(pidRegistry), registry_DEFAULT_SIZE))
 	for k, v := range pidRegistry {
 		if v.IsValid() {
@@ -163,12 +162,18 @@ func gcPID() {
 		}
 	}
 	pidRegistry = newRegistry
+	count += removedPIDs
 	removedPIDs = 0
 	pidRegistryMu.Unlock()
+	return count
 }
 
-func gcName() {
+func gcName() (count int) {
 	nameRegistryMu.Lock()
+	if removedNames == 0 {
+		nameRegistryMu.Unlock()
+		return count
+	}
 	newNameRegistry := make(map[gotp.Atom]Ref, max(len(nameRegistry), registry_DEFAULT_SIZE))
 	for k, v := range nameRegistry {
 		if v.IsValid() {
@@ -176,6 +181,8 @@ func gcName() {
 		}
 	}
 	nameRegistry = newNameRegistry
+	count += removedNames
 	removedNames = 0
 	nameRegistryMu.Unlock()
+	return count
 }

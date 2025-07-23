@@ -1,12 +1,16 @@
 package pid
 
 import (
-	"bytes"
+	"encoding/binary"
 	"encoding/gob"
 	"fmt"
+	"io"
 	"log/slog"
-	"sync"
 )
+
+func init() {
+	gob.Register(PID{})
+}
 
 type PID struct {
 	raw uint64
@@ -33,6 +37,17 @@ func NewPID(nodeID uint16, id uint64, serial uint8) PID {
 	return PID{raw: raw}
 }
 
+func parse(pidStr string) PID {
+	var nodeID uint16
+	var id uint64
+	var serial uint8
+	fmt.Sscanf(pidStr, "<%d.%d.%d>", &nodeID, &id, &serial)
+	// if n != 3 || err != nil {
+	// 	return PID{}, fmt.Errorf("invalid PID format: %s", pidStr)
+	// }
+	return NewPID(nodeID, id, serial)
+}
+
 func Zero() PID {
 	return PID{}
 }
@@ -57,42 +72,26 @@ func (p PID) String() string {
 	return fmt.Sprintf("<%d.%d.%d>", p.NodeID(), p.ID(), p.Serial())
 }
 
+func (p PID) GoString() string {
+	return fmt.Sprintf("<%d.%d.%d>", p.NodeID(), p.ID(), p.Serial())
+}
+
 func (p PID) LogValue() slog.Value {
 	return slog.StringValue(p.String())
 }
 
-func (p PID) GobEncode() ([]byte, error) {
-	gob.Register(PID{})
-	buf := getBuffer()
-	enc := gob.NewEncoder(buf)
-	err := enc.Encode(struct {
-		Raw uint64
-	}{
-		Raw: p.raw,
-	})
-	if err != nil {
-		putBuffer(buf)
-		return nil, fmt.Errorf("gob encoding PID failed: %w", err)
-	}
-	data := make([]byte, buf.Len())
-	copy(data, buf.Bytes())
-	putBuffer(buf)
-	return data, nil
+func (p PID) MarshalBinary() ([]byte, error) {
+	var buf [binary.MaxVarintLen64]byte
+	n := binary.PutUvarint(buf[:], p.raw)
+	return buf[:n:n], nil
 }
 
-func (p *PID) GobDecode(data []byte) error {
-	var tmp struct {
-		Raw uint64
+func (p *PID) UnmarshalBinary(data []byte) error {
+	raw, err := binary.ReadUvarint(newByteReader(data))
+	if err == nil {
+		p.raw = raw
 	}
-	buf := getBuffer()
-	dec := gob.NewDecoder(buf)
-
-	if err := dec.Decode(&tmp); err != nil {
-		putBuffer(buf)
-	}
-	putBuffer(buf)
-	p.raw = tmp.Raw
-	return nil
+	return err
 }
 
 func Compare(a, b PID) int {
@@ -104,19 +103,27 @@ func Compare(a, b PID) int {
 	return 0
 }
 
-// syncPool for bytes.Buffer
-var bufPool = sync.Pool{
-	New: func() any {
-		return new(bytes.Buffer)
-	},
+type byteReader []byte
+
+func newByteReader(b []byte) *byteReader {
+	br := byteReader(b)
+	return &br
 }
 
-func getBuffer() *bytes.Buffer {
-	buf := bufPool.Get().(*bytes.Buffer)
-	buf.Reset()
-	return buf
+func (br *byteReader) ReadByte() (byte, error) {
+	if len(*br) == 0 {
+		return 0, io.EOF
+	}
+	b := (*br)[0]
+	*br = (*br)[1:]
+	return b, nil
 }
 
-func putBuffer(buf *bytes.Buffer) {
-	bufPool.Put(buf)
+func (br *byteReader) Read(p []byte) (n int, err error) {
+	n = copy(p, *br)
+	*br = (*br)[n:]
+	if n == len(p) {
+		err = io.EOF
+	}
+	return n, err
 }

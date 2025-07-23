@@ -1,9 +1,14 @@
 package gotp
 
 import (
+	"encoding/gob"
 	"log/slog"
 	"unsafe"
 )
+
+func init() {
+	gob.Register(Atom(""))
+}
 
 type Atom string
 
