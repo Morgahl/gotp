@@ -28,7 +28,7 @@ func (s *server[I, Cl, R, Cs, Ct]) setupLinkedProc(initArg I, linked process.Ref
 }
 
 func (s *server[I, Cl, R, Cs, Ct]) loop(initArg I, sig chan error) process.RunFn {
-	return func(pctx process.Context) (reason error) {
+	return func(pctx *process.Context) (reason error) {
 		var cont Continue[Ct]
 		var resp Response[R]
 		defer func() {

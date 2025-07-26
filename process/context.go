@@ -12,10 +12,13 @@ type Context struct {
 	ref     Ref
 	pidMap  map[PID]Ref
 	nameMap map[gotp.Atom]Ref
+
+	// noCopy is used to prevent copying of the Context.
+	_ noCopy
 }
 
-func newContext(process *process) Context {
-	return Context{
+func newContext(process *process) *Context {
+	return &Context{
 		process: process,
 		ref:     newRef(process),
 		pidMap:  make(map[PID]Ref),
@@ -59,6 +62,17 @@ func (c *Context) UpdateFlags(fn func(ProcessFlags) ProcessFlags) {
 	c.process.flags = fn(c.process.flags)
 }
 
+func (c *Context) Link(to PID) {
+	if to == c.process.pid {
+		return
+	}
+	ContextSend(c, to, linkRequestSignal(RequestMsg[Ref]{
+		From:    c.process.pid,
+		Ref:     c.ref,
+		Message: c.ref,
+	}))
+}
+
 func (c *Context) Send(msg Message) {
 	c.process.send(messageSignal(no_FLAGS, msg))
 }
@@ -71,7 +85,7 @@ func (c *Context) Exit(reason error) {
 	c.process.send(exitSignal(no_FLAGS, c.process.pid, newRef(c.process), reason))
 }
 
-func ContextSend[S Sendable](pctx Context, to S, m Message) {
+func ContextSend[S Sendable](pctx *Context, to S, m Message) {
 	defer func() { recover() }()
 	switch v := any(to).(type) {
 	case Ref:
@@ -105,6 +119,16 @@ func ContextSend[S Sendable](pctx Context, to S, m Message) {
 	}
 }
 
-func ContextSendAfter[S Sendable](pctx Context, s S, m Message, delay time.Duration) *time.Timer {
+func ContextSendAfter[S Sendable](pctx *Context, s S, m Message, delay time.Duration) *time.Timer {
 	return time.AfterFunc(delay, func() { ContextSend(pctx, s, m) })
 }
+
+// See https://golang.org/issues/8005#issuecomment-190753527
+// for details.
+//
+// Note that it must not be embedded, due to the Lock and Unlock methods.
+type noCopy struct{}
+
+// Lock is a no-op used by -copylocks checker from `go vet`.
+func (*noCopy) Lock()   {}
+func (*noCopy) Unlock() {}

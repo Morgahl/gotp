@@ -14,7 +14,7 @@ type Supervisable interface {
 
 type Supervisor[I any] interface {
 	Supervisable
-	Init(process.Context, I) (Options, []Supervisable, error)
+	Init(*process.Context, I) (Options, []Supervisable, error)
 }
 
 type Strategy uint8

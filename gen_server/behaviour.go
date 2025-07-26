@@ -15,12 +15,12 @@ type GenServer[
 	Cs process.Message,
 	Ct process.Message,
 ] interface {
-	Init(process.Context, I) (Continue[Ct], error)
-	HandleCall(process.Context, Cl, process.PID) (Response[R], Continue[Ct], error)
-	HandleCast(process.Context, Cs) (Continue[Ct], error)
-	HandleContinue(process.Context, Ct) (Continue[Ct], error)
-	HandleInfo(process.Context, process.Message) (Continue[Ct], error)
-	Terminate(process.Context, error) error
+	Init(*process.Context, I) (Continue[Ct], error)
+	HandleCall(*process.Context, Cl, process.PID) (Response[R], Continue[Ct], error)
+	HandleCast(*process.Context, Cs) (Continue[Ct], error)
+	HandleContinue(*process.Context, Ct) (Continue[Ct], error)
+	HandleInfo(*process.Context, process.Message) (Continue[Ct], error)
+	Terminate(*process.Context, error) error
 }
 
 const (
@@ -39,27 +39,27 @@ const (
 // - Ct which is the type of the continue message
 type OptionalCallbacks[I any, Ct process.Message] struct{}
 
-func (OptionalCallbacks[I, Ct]) HandleCall(pctx process.Context, msg any, from process.PID) (Response[any], Continue[Ct], error) {
+func (OptionalCallbacks[I, Ct]) HandleCall(pctx *process.Context, msg any, from process.PID) (Response[any], Continue[Ct], error) {
 	slog.WarnContext(pctx.Context(), "HandleCall not implemented, msg will be ignored", slog.String("msg", fmt.Sprintf("%+v", msg)), slog.String("from", from.String()))
 	return NoReply[any](), NoCont[Ct](), nil
 }
 
-func (OptionalCallbacks[I, Ct]) HandleCast(pctx process.Context, msg any) (Continue[Ct], error) {
+func (OptionalCallbacks[I, Ct]) HandleCast(pctx *process.Context, msg any) (Continue[Ct], error) {
 	slog.WarnContext(pctx.Context(), "HandleCast not implemented, msg will be ignored", slog.String("msg", fmt.Sprintf("%+v", msg)))
 	return NoCont[Ct](), nil
 }
 
-func (OptionalCallbacks[I, Ct]) HandleContinue(pctx process.Context, msg Ct) (Continue[Ct], error) {
+func (OptionalCallbacks[I, Ct]) HandleContinue(pctx *process.Context, msg Ct) (Continue[Ct], error) {
 	slog.WarnContext(pctx.Context(), "HandleContinue not implemented, msg will be ignored", slog.String("msg", fmt.Sprintf("%+v", msg)))
 	return NoCont[Ct](), nil
 }
 
-func (OptionalCallbacks[I, Ct]) HandleInfo(pctx process.Context, msg process.Message) (Continue[Ct], error) {
+func (OptionalCallbacks[I, Ct]) HandleInfo(pctx *process.Context, msg process.Message) (Continue[Ct], error) {
 	slog.WarnContext(pctx.Context(), "HandleInfo not implemented, msg will be ignored", slog.String("msg", fmt.Sprintf("%+v", msg)))
 	return NoCont[Ct](), nil
 }
 
-func (OptionalCallbacks[I, Ct]) Terminate(pctx process.Context, reason error) error {
+func (OptionalCallbacks[I, Ct]) Terminate(pctx *process.Context, reason error) error {
 	slog.WarnContext(pctx.Context(), "Terminate not implemented, server will be stopped", slog.Any("reason", reason))
 	return reason
 }

@@ -32,7 +32,7 @@ func SendAfter[S Sendable](s S, m Message, delay time.Duration) *time.Timer {
 	return time.AfterFunc(delay, func() { Send(s, m) })
 }
 
-func ReceiveWithTimeout[M Message](pctx Context, timeout time.Duration) (M, bool, error) {
+func ReceiveWithTimeout[M Message](pctx *Context, timeout time.Duration) (M, bool, error) {
 	var after <-chan time.Time
 	if timeout > 0 {
 		after = time.After(timeout)
@@ -40,7 +40,7 @@ func ReceiveWithTimeout[M Message](pctx Context, timeout time.Duration) (M, bool
 	return receive[M](pctx, after)
 }
 
-func ReceiveContext[M Message](pctx Context, ctx context.Context) (M, bool, error) {
+func ReceiveContext[M Message](pctx *Context, ctx context.Context) (M, bool, error) {
 	m, ok, err := receive[M](pctx, ctx.Done())
 	if err == nil {
 		err = context.Cause(ctx)
@@ -48,7 +48,7 @@ func ReceiveContext[M Message](pctx Context, ctx context.Context) (M, bool, erro
 	return m, ok, err
 }
 
-func receive[M Message, D any](pctx Context, done <-chan D) (_ M, _ bool, reason error) {
+func receive[M Message, D any](pctx *Context, done <-chan D) (_ M, _ bool, reason error) {
 	var readOffset int
 	var messageSkipOffset int
 	defer pctx.process.maybeGarbageCollect()

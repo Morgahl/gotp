@@ -41,7 +41,7 @@ func Stop(reason error) {
 }
 
 func _init(initCtx ctx.Cancellable, app application.Application, wg *sync.WaitGroup) process.RunFn {
-	return func(pctx process.Context) (reason error) {
+	return func(pctx *process.Context) (reason error) {
 		pctx.TrapExit(true)
 		defer wg.Done()
 		defer func() {

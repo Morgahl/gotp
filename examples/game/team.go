@@ -81,7 +81,7 @@ func (f *Team) ChildSpec() supervisor.ChildSpec {
 	}
 }
 
-func (f *Team) Init(pctx process.Context, opts gotp.Options) (supervisor.Options, []supervisor.Supervisable, error) {
+func (f *Team) Init(pctx *process.Context, opts gotp.Options) (supervisor.Options, []supervisor.Supervisable, error) {
 	slog.InfoContext(pctx.Context(), "Team.Init", "members", len(f.specs), "opts", opts)
 	return f.flags, f.specs, nil
 }

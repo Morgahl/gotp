@@ -25,22 +25,22 @@ type agent[T any] struct {
 
 func (a *agent[T]) ChildSpec() supervisor.ChildSpec {
 	return supervisor.ChildSpec{
-		Restart:  supervisor.PERMANENT,
-		Shutdown: gotp.DEFAULT_SHUTDOWN,
-		Type:     supervisor.WORKER,
-		// Significant: true,
+		Restart:     supervisor.PERMANENT,
+		Shutdown:    gotp.DEFAULT_SHUTDOWN,
+		Type:        supervisor.WORKER,
+		Significant: true,
 		Start: func(opts ...process.SpawnOpt) (process.Ref, error) {
 			return gen_server.Start(a, a.initFn, opts...)
 		},
 	}
 }
 
-func (a *agent[T]) Init(pctx process.Context, initFn InitFn[T]) (gen_server.Continue[any], error) {
+func (a *agent[T]) Init(pctx *process.Context, initFn InitFn[T]) (gen_server.Continue[any], error) {
 	a.state = initFn()
 	return gen_server.NoCont[any](), nil
 }
 
-func (a *agent[T]) HandleCall(pctx process.Context, msg process.Message, from process.PID) (gen_server.Response[T], gen_server.Continue[any], error) {
+func (a *agent[T]) HandleCall(pctx *process.Context, msg process.Message, from process.PID) (gen_server.Response[T], gen_server.Continue[any], error) {
 	switch msg := msg.(type) {
 	case GetFn[T]:
 		return gen_server.Reply(msg(*a.state)), gen_server.NoCont[any](), nil
@@ -55,7 +55,7 @@ func (a *agent[T]) HandleCall(pctx process.Context, msg process.Message, from pr
 	}
 }
 
-func (a *agent[T]) HandleCast(pctx process.Context, msg process.Message) (gen_server.Continue[any], error) {
+func (a *agent[T]) HandleCast(pctx *process.Context, msg process.Message) (gen_server.Continue[any], error) {
 	switch msg := msg.(type) {
 	case UpdateFn[T]:
 		msg(a.state)
@@ -65,7 +65,7 @@ func (a *agent[T]) HandleCast(pctx process.Context, msg process.Message) (gen_se
 	}
 }
 
-func (a *agent[T]) HandleInfo(pctx process.Context, msg process.Message) (gen_server.Continue[any], error) {
+func (a *agent[T]) HandleInfo(pctx *process.Context, msg process.Message) (gen_server.Continue[any], error) {
 	switch msg := msg.(type) {
 	case process.ExitMsg:
 		if msg.PID == pctx.PID() {
@@ -75,6 +75,6 @@ func (a *agent[T]) HandleInfo(pctx process.Context, msg process.Message) (gen_se
 	return gen_server.NoCont[any](), nil
 }
 
-func (a *agent[T]) Terminate(pctx process.Context, reason error) error {
+func (a *agent[T]) Terminate(pctx *process.Context, reason error) error {
 	return reason
 }

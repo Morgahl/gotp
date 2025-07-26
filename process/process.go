@@ -20,7 +20,7 @@ type Startable interface {
 	Start(opts ...SpawnOpt) (PID, error)
 }
 
-type RunFn func(Context) error
+type RunFn func(*Context) error
 
 type process struct {
 	pid             PID
@@ -43,6 +43,9 @@ type process struct {
 	// process management structures
 	links    refMap
 	monitors refMap
+
+	// noCopy is used to prevent copying of the process.
+	_ noCopy
 }
 
 func build(opts []SpawnOpt) *process {

@@ -52,7 +52,7 @@ func Call[Cl process.Message, R process.Message, S process.Sendable](to S, from 
 	}
 }
 
-func ContextCall[Cl process.Message, R process.Message, S process.Sendable](to S, from process.Context, msg Cl, timeout time.Duration) (resp R, replied bool) {
+func ContextCall[Cl process.Message, R process.Message, S process.Sendable](to S, from *process.Context, msg Cl, timeout time.Duration) (resp R, replied bool) {
 	if timeout < 0 {
 		timeout = DEFAULT_TIMEOUT
 	}
@@ -74,6 +74,6 @@ func Cast[Cl process.Message, S process.Sendable](to S, msg Cl) {
 	process.Send(to, CastMsg(msg))
 }
 
-func ContextCast[Cl process.Message, S process.Sendable](to S, pctx process.Context, msg Cl) {
+func ContextCast[Cl process.Message, S process.Sendable](to S, pctx *process.Context, msg Cl) {
 	process.ContextSend(pctx, to, CastMsg(msg))
 }

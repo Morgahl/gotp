@@ -15,10 +15,8 @@ import (
 )
 
 const (
-	MIN_DURATION      = 2 * time.Second
-	MID_LOW_DURATION  = 3 * time.Second
-	MID_HIGH_DURATION = 5 * time.Second
-	MAX_DURATION      = 8 * time.Second
+	MIN_DURATION = 2 * time.Second
+	MAX_DURATION = 5 * time.Second
 
 	atom_GET_WORK gotp.Atom = "get_work"
 )
@@ -62,13 +60,12 @@ func (f *Crew) ChildSpec() supervisor.ChildSpec {
 	}
 }
 
-func (f *Crew) Init(pctx process.Context, _ any) (c gen_server.Continue[any], err error) {
-	// slog.DebugContext(pctx.Context(), "Crew.Init", slog.Any("agent", f.agent))
+func (f *Crew) Init(pctx *process.Context, _ any) (c gen_server.Continue[any], err error) {
 	pctx.TrapExit(true)
 	return gen_server.Cont[any](atom_GET_WORK), nil
 }
 
-func (f *Crew) HandleContinue(pctx process.Context, msg any) (gen_server.Continue[any], error) {
+func (f *Crew) HandleContinue(pctx *process.Context, msg any) (gen_server.Continue[any], error) {
 	switch m := msg.(type) {
 	case gotp.Atom:
 		switch m {
@@ -80,7 +77,6 @@ func (f *Crew) HandleContinue(pctx process.Context, msg any) (gen_server.Continu
 					return gen_server.NoCont[any](), nil
 				}
 
-				slog.DebugContext(pctx.Context(), "Crew.HandleContinue - no work available")
 				return gen_server.Stop[any](process.NORMAL), nil
 			}
 			work := f.work
@@ -96,7 +92,7 @@ func (f *Crew) HandleContinue(pctx process.Context, msg any) (gen_server.Continu
 	return gen_server.NoCont[any](), nil
 }
 
-func (f *Crew) HandleCast(pctx process.Context, work *workItem) (gen_server.Continue[any], error) {
+func (f *Crew) HandleCast(pctx *process.Context, work *workItem) (gen_server.Continue[any], error) {
 	if f.work.id == work.id && work.need != work.done {
 		work.done++
 		load := assessWork()
@@ -108,23 +104,24 @@ func (f *Crew) HandleCast(pctx process.Context, work *workItem) (gen_server.Cont
 	return gen_server.Cont[any](atom_GET_WORK), nil
 }
 
-func (f *Crew) HandleInfo(pctx process.Context, msg process.Message) (gen_server.Continue[any], error) {
+func (f *Crew) HandleInfo(pctx *process.Context, msg process.Message) (gen_server.Continue[any], error) {
 	switch m := msg.(type) {
 	case process.ExitMsg:
 		if m.PID == pctx.PID() {
 			return gen_server.Stop[any](m.Reason), nil
 		}
+		return gen_server.NoCont[any](), nil
+
 	default:
 		return gen_server.NoCont[any](), fmt.Errorf("unexpected message: %T", m)
 	}
-	return gen_server.NoCont[any](), nil
 }
 
-func (f *Crew) Terminate(pctx process.Context, reason error) error {
+func (f *Crew) Terminate(pctx *process.Context, reason error) error {
 	switch {
 	case errors.Is(reason, process.NORMAL) || errors.Is(reason, ctx.Shutdown{}):
 		if f.work != nil {
-			slog.ErrorContext(pctx.Context(), "Crew.Terminate", slog.Any("reason", reason), slog.Any("work_id", f.work))
+			slog.ErrorContext(pctx.Context(), "Crew.Terminate", slog.Any("reason", reason), slog.Any("work", f.work))
 		}
 	default:
 		slog.ErrorContext(pctx.Context(), "Crew.Terminate", slog.Any("reason", reason))
@@ -133,12 +130,5 @@ func (f *Crew) Terminate(pctx process.Context, reason error) error {
 }
 
 func assessWork() time.Duration {
-	switch n := rand.Float64(); {
-	case n <= 0.50:
-		return time.Duration(rand.Int63n(int64(MID_LOW_DURATION-MIN_DURATION))) + MIN_DURATION
-	case n <= 0.90:
-		return time.Duration(rand.Int63n(int64(MID_HIGH_DURATION-MID_LOW_DURATION))) + MID_LOW_DURATION
-	default:
-		return time.Duration(rand.Int63n(int64(MAX_DURATION-MID_HIGH_DURATION))) + MID_HIGH_DURATION
-	}
+	return time.Duration(rand.Int63n(int64(MAX_DURATION-MIN_DURATION))) + MIN_DURATION
 }

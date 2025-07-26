@@ -30,7 +30,7 @@ func (s *server) ChildSpec() supervisor.ChildSpec {
 	return s.sup.ChildSpec()
 }
 
-func (s *server) Init(pctx process.Context, opts gotp.Options) (cont gen_server.Continue[process.Message], err error) {
+func (s *server) Init(pctx *process.Context, opts gotp.Options) (cont gen_server.Continue[process.Message], err error) {
 	pctx.TrapExit(true)
 
 	var options supervisor.Options
@@ -54,7 +54,7 @@ func (s *server) Init(pctx process.Context, opts gotp.Options) (cont gen_server.
 	return gen_server.NoCont[process.Message](), nil
 }
 
-func (s *server) HandleCall(pctx process.Context, msg process.Message, _ process.PID) (resp gen_server.Response[process.Message], cont gen_server.Continue[process.Message], err error) {
+func (s *server) HandleCall(pctx *process.Context, msg process.Message, _ process.PID) (resp gen_server.Response[process.Message], cont gen_server.Continue[process.Message], err error) {
 	switch m := msg.(type) {
 	// starting child
 	case supervisor.ChildSpec:
@@ -81,15 +81,15 @@ func (s *server) HandleCall(pctx process.Context, msg process.Message, _ process
 	panic("unreachable code")
 }
 
-func (s *server) HandleCast(pctx process.Context, msg process.Message) (cont gen_server.Continue[process.Message], err error) {
+func (s *server) HandleCast(pctx *process.Context, msg process.Message) (cont gen_server.Continue[process.Message], err error) {
 	return gen_server.NoCont[process.Message](), nil
 }
 
-func (s *server) HandleContinue(pctx process.Context, arg process.Message) (cont gen_server.Continue[process.Message], err error) {
+func (s *server) HandleContinue(pctx *process.Context, arg process.Message) (cont gen_server.Continue[process.Message], err error) {
 	return gen_server.NoCont[process.Message](), nil
 }
 
-func (s *server) HandleInfo(pctx process.Context, info process.Message) (cont gen_server.Continue[process.Message], err error) {
+func (s *server) HandleInfo(pctx *process.Context, info process.Message) (cont gen_server.Continue[process.Message], err error) {
 	defer func() {
 		if r := recover(); r != nil {
 		}
@@ -126,7 +126,7 @@ func (s *server) HandleInfo(pctx process.Context, info process.Message) (cont ge
 	return gen_server.NoCont[process.Message](), nil
 }
 
-func (s *server) Terminate(pctx process.Context, reason error) (newReson error) {
+func (s *server) Terminate(pctx *process.Context, reason error) (newReson error) {
 	children := make([]child, 0, len(s.children))
 	for _, c := range s.children {
 		children = append(children, c)
@@ -177,7 +177,7 @@ func (s *server) findChildByPID(pid process.PID) (child child, ok bool) {
 	return child, ok
 }
 
-func (s *server) startChild(pctx process.Context, spec supervisor.ChildSpec) error {
+func (s *server) startChild(pctx *process.Context, spec supervisor.ChildSpec) error {
 	ref, err := spec.Start(process.Link(pctx.Ref()))
 	if err != nil {
 		return err
