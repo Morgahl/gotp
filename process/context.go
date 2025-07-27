@@ -73,11 +73,11 @@ func (c *Context) Link(to PID) {
 	}))
 }
 
-func (c *Context) Send(msg Message) {
+func (c *Context) Send(msg gotp.Term) {
 	c.process.send(messageSignal(no_FLAGS, msg))
 }
 
-func (c *Context) SendAfter(msg Message, delay time.Duration) *time.Timer {
+func (c *Context) SendAfter(msg gotp.Term, delay time.Duration) *time.Timer {
 	return time.AfterFunc(delay, func() { c.process.send(messageSignal(no_FLAGS, msg)) })
 }
 
@@ -85,7 +85,7 @@ func (c *Context) Exit(reason error) {
 	c.process.send(exitSignal(no_FLAGS, c.process.pid, newRef(c.process), reason))
 }
 
-func ContextSend[S Sendable](pctx *Context, to S, m Message) {
+func ContextSend[S Sendable](pctx *Context, to S, m gotp.Term) {
 	defer func() { recover() }()
 	switch v := any(to).(type) {
 	case Ref:
@@ -119,7 +119,7 @@ func ContextSend[S Sendable](pctx *Context, to S, m Message) {
 	}
 }
 
-func ContextSendAfter[S Sendable](pctx *Context, s S, m Message, delay time.Duration) *time.Timer {
+func ContextSendAfter[S Sendable](pctx *Context, s S, m gotp.Term, delay time.Duration) *time.Timer {
 	return time.AfterFunc(delay, func() { ContextSend(pctx, s, m) })
 }
 

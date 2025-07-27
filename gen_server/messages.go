@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/Morgahl/gotp"
 	"github.com/Morgahl/gotp/process"
 )
 
@@ -64,37 +65,37 @@ func Stop[C any](reason C) Continue[C] {
 	return Continue[C]{atom: STOP, arg: reason}
 }
 
-type call[M process.Message, R process.Message] struct {
+type call[T gotp.Term, R gotp.Term] struct {
 	from process.PID
-	req  M
+	req  T
 	resp chan R
 }
 
-func CallMsg[M process.Message, R process.Message](from process.PID, req M) call[M, R] {
-	return call[M, R]{from: from, req: req, resp: make(chan R, 1)}
+func CallMsg[T gotp.Term, R gotp.Term](from process.PID, req T) call[T, R] {
+	return call[T, R]{from: from, req: req, resp: make(chan R, 1)}
 }
 
-func (c call[M, R]) String() string {
+func (c call[T, R]) String() string {
 	return fmt.Sprintf("call{from: %s, req: %T}", c.from, c.req)
 }
 
-func (c call[M, R]) LogValue() slog.Value {
+func (c call[T, R]) LogValue() slog.Value {
 	return slog.StringValue(c.String())
 }
 
-type cast[M process.Message] struct {
-	req M
+type cast[T gotp.Term] struct {
+	req T
 }
 
-func CastMsg[M process.Message](req M) cast[M] {
-	return cast[M]{req: req}
+func CastMsg[T gotp.Term](req T) cast[T] {
+	return cast[T]{req: req}
 }
 
-func (c cast[M]) String() string {
+func (c cast[T]) String() string {
 	return fmt.Sprintf("cast{req: %T}", c.req)
 }
 
-func (c cast[M]) LogValue() slog.Value {
+func (c cast[T]) LogValue() slog.Value {
 	return slog.StringValue(c.String())
 }
 

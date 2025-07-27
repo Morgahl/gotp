@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"log/slog"
 	"weak"
+
+	"github.com/Morgahl/gotp"
 )
 
 type Ref struct {
@@ -26,11 +28,11 @@ func (r Ref) IsValid() bool {
 	return r.procRef.Value() != nil
 }
 
-func (r Ref) Send(m Message) {
+func (r Ref) Send(m gotp.Term) {
 	r.send(messageSignal(no_FLAGS, m))
 }
 
-func (r Ref) send(s signal[Message]) {
+func (r Ref) send(s signal[gotp.Term]) {
 	if proc := r.procRef.Value(); proc != nil {
 		proc.send(s)
 	}

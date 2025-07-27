@@ -1,16 +1,17 @@
 package gen_server
 
 import (
+	"github.com/Morgahl/gotp"
 	"github.com/Morgahl/gotp/dbg"
 	"github.com/Morgahl/gotp/process"
 )
 
 type server[
 	I any,
-	Cl process.Message,
-	R process.Message,
-	Cs process.Message,
-	Ct process.Message,
+	Cl gotp.Term,
+	R gotp.Term,
+	Cs gotp.Term,
+	Ct gotp.Term,
 ] struct {
 	serverable GenServer[I, Cl, R, Cs, Ct]
 }
@@ -59,7 +60,7 @@ func (s *server[I, Cl, R, Cs, Ct]) loop(initArg I, sig chan error) process.RunFn
 				continue
 			}
 
-			msg, ok, err := process.ReceiveWithTimeout[process.Message](pctx, 0)
+			msg, ok, err := process.ReceiveWithTimeout[gotp.Term](pctx, 0)
 			if err != nil {
 				return err
 			} else if !ok {

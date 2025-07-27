@@ -5,21 +5,22 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/Morgahl/gotp"
 	"github.com/Morgahl/gotp/process"
 )
 
 type GenServer[
-	I any,
-	Cl process.Message,
-	R process.Message,
-	Cs process.Message,
-	Ct process.Message,
+	I gotp.Term,
+	Cl gotp.Term,
+	R gotp.Term,
+	Cs gotp.Term,
+	Ct gotp.Term,
 ] interface {
 	Init(*process.Context, I) (Continue[Ct], error)
 	HandleCall(*process.Context, Cl, process.PID) (Response[R], Continue[Ct], error)
 	HandleCast(*process.Context, Cs) (Continue[Ct], error)
 	HandleContinue(*process.Context, Ct) (Continue[Ct], error)
-	HandleInfo(*process.Context, process.Message) (Continue[Ct], error)
+	HandleInfo(*process.Context, gotp.Term) (Continue[Ct], error)
 	Terminate(*process.Context, error) error
 }
 
@@ -37,7 +38,7 @@ const (
 // ensure that the server correctly matches the Serverable interface:
 // - I which is the arg passed to Init when it is called
 // - Ct which is the type of the continue message
-type OptionalCallbacks[I any, Ct process.Message] struct{}
+type OptionalCallbacks[I any, Ct gotp.Term] struct{}
 
 func (OptionalCallbacks[I, Ct]) HandleCall(pctx *process.Context, msg any, from process.PID) (Response[any], Continue[Ct], error) {
 	slog.WarnContext(pctx.Context(), "HandleCall not implemented, msg will be ignored", slog.String("msg", fmt.Sprintf("%+v", msg)), slog.String("from", from.String()))
@@ -54,7 +55,7 @@ func (OptionalCallbacks[I, Ct]) HandleContinue(pctx *process.Context, msg Ct) (C
 	return NoCont[Ct](), nil
 }
 
-func (OptionalCallbacks[I, Ct]) HandleInfo(pctx *process.Context, msg process.Message) (Continue[Ct], error) {
+func (OptionalCallbacks[I, Ct]) HandleInfo(pctx *process.Context, msg gotp.Term) (Continue[Ct], error) {
 	slog.WarnContext(pctx.Context(), "HandleInfo not implemented, msg will be ignored", slog.String("msg", fmt.Sprintf("%+v", msg)))
 	return NoCont[Ct](), nil
 }
