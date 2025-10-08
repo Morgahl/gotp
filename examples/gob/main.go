@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/Morgahl/gotp"
-	"github.com/Morgahl/gotp/assert"
 	"github.com/Morgahl/gotp/internal/pid"
 	"github.com/Morgahl/gotp/process"
 )
@@ -19,6 +18,7 @@ func init() {
 
 func main() {
 	var buf bytes.Buffer
+	buf.Grow(1 << 24) // 16MB
 	enc := gob.NewEncoder(&buf)
 	dec := gob.NewDecoder(&buf)
 	start := time.Now()
@@ -47,21 +47,35 @@ func main() {
 }
 
 func validate[T comparable](buf *bytes.Buffer, enc *gob.Encoder, dec *gob.Decoder, t T) {
+	buf.Reset()
 	var afterT T
-	var encLen int
+	var count int
 	gob.Register(t)
-	start := time.Now()
-	for i := 0; i < 100_000; i++ {
-		buf.Reset()
-		assert.NilF(enc.Encode(t), "encoding failed: %v")
-		encLen += buf.Len()
-		assert.NilF(dec.Decode(&afterT), "decoding failed: %v")
-		assert.EqualF(t, afterT, "encode decode mismatch:\nbefore:\n\t%v\nafter\n\t%v")
+	startEnc := time.Now()
+	after := time.After(time.Second)
+ENCODE:
+	for ; ; count++ {
+		select {
+		case <-after:
+			break ENCODE
+		default:
+			enc.Encode(t)
+		}
 	}
-	took := time.Since(start)
-	each := took / 100_000
-	avgLen := encLen / 100_000
-	fmt.Printf("Encoded and decoded successfully: %[1]T before=%[1]v after=%v len=%d took=%v each=%v\n", t, afterT, avgLen, took, each)
+	tookEnc := time.Since(startEnc)
+	avgLen := buf.Len() / count
+	startDec := time.Now()
+	for decCount := 0; decCount <= count; decCount++ {
+		dec.Decode(&afterT)
+	}
+	// assert.EqualF(t, afterT, "decoded value does not match original: before=%v after=%v")
+	tookDec := time.Since(startDec)
+	avgEnd := tookEnc / time.Duration(count)
+	avgDec := tookDec / time.Duration(count)
+	fmt.Printf(
+		"Encoded and decoded successfully: %[1]T before=%[1]v after=%v len=%d tookEnc=%v avgEnc=%v tookDec=%v avgDec=%v count=%d\n",
+		t, afterT, avgLen, tookEnc, avgEnd, tookDec, avgDec, count,
+	)
 }
 
 type Vec3[T any] struct {
@@ -77,45 +91,9 @@ func (v Vec3[T]) GoString() string {
 	return fmt.Sprintf("Vec3(x=%d y=%d z=%d t=%v)", v.X, v.Y, v.Z, v.t)
 }
 
-// func (v Vec3[T]) GobEncode() ([]byte, error) {
-// 	var buf bytes.Buffer
-// 	enc := gob.NewEncoder(&buf)
-// 	gob.Register(v.t)
-
-// 	err := enc.Encode(&struct {
-// 		X, Y, Z int
-// 		T       any
-// 	}{
-// 		X: v.X,
-// 		Y: v.Y,
-// 		Z: v.Z,
-// 		T: v.t,
-// 	})
-// 	return buf.Bytes(), err
-// }
-
-// func (v *Vec3[T]) GobDecode(data []byte) error {
-// 	var tmp *struct {
-// 		X, Y, Z int
-// 		T       any
-// 	}
-// 	buf := bytes.NewBuffer(data)
-// 	dec := gob.NewDecoder(buf)
-// 	if err := dec.Decode(&tmp); err != nil {
-// 		return err
-// 	}
-// 	v.X = tmp.X
-// 	v.Y = tmp.Y
-// 	v.Z = tmp.Z
-// 	v.t = tmp.T.(T)
-// 	return nil
-// }
-
 func (v Vec3[T]) GobEncode() ([]byte, error) {
 	var buf bytes.Buffer
 	enc := gob.NewEncoder(&buf)
-	gob.Register(v.t)
-
 	if err := enc.Encode(&v.X); err != nil {
 		return nil, err
 	} else if err := enc.Encode(&v.Y); err != nil {

@@ -49,6 +49,7 @@ func (s *server) Init(pctx process.Context, opts gotp.Options) (cont gen_server.
 		if err := s.startChild(pctx, spec); err != nil {
 			return gen_server.NoCont[process.Message](), err
 		}
+		pctx.ProcessPending()
 	}
 
 	return gen_server.NoCont[process.Message](), nil

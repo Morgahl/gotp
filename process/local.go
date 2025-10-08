@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	registry_DEFAULT_SIZE = 100
+	registry_DEFAULT_SIZE = 1024
 )
 
 var (
@@ -27,8 +27,8 @@ var (
 	nameRegistry   map[gotp.Atom]Ref
 	removedNames   int
 
-	lastGC     = time.Now()
 	gcInterval = 10 * time.Second
+	lastGC     = time.Now().Add(time.Minute)
 )
 
 func init() {
@@ -41,7 +41,7 @@ func nextPID() PID {
 	id := atomic.AddUint64(&localID, 1)
 	if id > pid.ID_MASK {
 		stepSerial()
-		id = 1
+		id = 0
 	}
 	return pid.NewPID(0, id, uint8(atomic.LoadUint32(&serial)&pid.SERIAL_MASK))
 }
@@ -138,31 +138,24 @@ func gc() (pids, names int) {
 	if time.Since(lastGC) < gcInterval {
 		return
 	}
-
 	pids = gcPID()
 	names = gcName()
-
 	lastGC = time.Now()
-	// if pids+names > 10_000 {
-	// 	runtime.GC()
-	// }
 	return
 }
 
 func gcPID() (count int) {
 	pidRegistryMu.Lock()
-	if removedPIDs == 0 {
+	if removedPIDs == 0 || len(pidRegistry) <= registry_DEFAULT_SIZE {
 		pidRegistryMu.Unlock()
 		return count
 	}
 	newRegistry := make(map[PID]Ref, max(len(pidRegistry), registry_DEFAULT_SIZE))
 	for k, v := range pidRegistry {
-		if v.IsValid() {
-			newRegistry[k] = v
-		}
+		newRegistry[k] = v
 	}
 	pidRegistry = newRegistry
-	count += removedPIDs
+	count = removedPIDs
 	removedPIDs = 0
 	pidRegistryMu.Unlock()
 	return count
@@ -170,18 +163,16 @@ func gcPID() (count int) {
 
 func gcName() (count int) {
 	nameRegistryMu.Lock()
-	if removedNames == 0 {
+	if removedNames == 0 || len(nameRegistry) <= registry_DEFAULT_SIZE {
 		nameRegistryMu.Unlock()
 		return count
 	}
 	newNameRegistry := make(map[gotp.Atom]Ref, max(len(nameRegistry), registry_DEFAULT_SIZE))
 	for k, v := range nameRegistry {
-		if v.IsValid() {
-			newNameRegistry[k] = v
-		}
+		newNameRegistry[k] = v
 	}
 	nameRegistry = newNameRegistry
-	count += removedNames
+	count = removedNames
 	removedNames = 0
 	nameRegistryMu.Unlock()
 	return count

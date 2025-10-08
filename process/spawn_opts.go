@@ -13,24 +13,21 @@ func Link(ref Ref) SpawnOpt {
 		Ref:     ref,
 		Message: ref,
 	})
-	// TODO: A send like this might deadlock during building as the process is not receiving yet
 	return func(p *process) {
 		assert.Equal(p.state, STARTING_STATE, "process must be in STARTING_STATE for spawn options to be applied")
-		p.send(s)
+		p.handleSignal(s)
 	}
 }
 
-// TODO: rethink the *process passing here we may want this to just be a builder struct instead for safety
 func Monitored(ref Ref) SpawnOpt {
 	s := monitorSignal(RequestMsg[Ref]{
 		From:    ref.pid,
 		Ref:     ref,
 		Message: ref,
 	})
-	// TODO: A send like this might deadlock during building as the process is not receiving yet
 	return func(p *process) {
 		assert.Equal(p.state, STARTING_STATE, "process must be in STARTING_STATE for spawn options to be applied")
-		p.send(s)
+		p.handleSignal(s)
 	}
 }
 
@@ -45,7 +42,9 @@ func MailboxSize(size int) SpawnOpt {
 		} else {
 			capacity := cap(p.mailbox)
 			if capacity < size {
+				oldMailbox := p.mailbox
 				p.mailbox = make([]Message, 0, size)
+				copy(p.mailbox, oldMailbox)
 			}
 		}
 	}

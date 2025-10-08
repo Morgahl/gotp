@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+
+	"github.com/Morgahl/gotp/dbg"
 )
 
 func init() {
@@ -41,10 +43,10 @@ func parse(pidStr string) PID {
 	var nodeID uint16
 	var id uint64
 	var serial uint8
-	fmt.Sscanf(pidStr, "<%d.%d.%d>", &nodeID, &id, &serial)
-	// if n != 3 || err != nil {
-	// 	return PID{}, fmt.Errorf("invalid PID format: %s", pidStr)
-	// }
+	n, err := fmt.Sscanf(pidStr, "<%d.%d.%d>", &nodeID, &id, &serial)
+	if n != 3 || err != nil {
+		dbg.Throw("invalid PID format: %s", pidStr)
+	}
 	return NewPID(nodeID, id, serial)
 }
 

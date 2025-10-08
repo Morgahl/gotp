@@ -101,6 +101,7 @@ PROCESS_MESSAGES:
 	case <-done:
 		goto EXIT
 	}
+
 EXIT:
 	var zero M
 	if pctx.process.state == EXITING_STATE || pctx.process.state == EXITED_STATE {

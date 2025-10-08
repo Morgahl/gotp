@@ -45,7 +45,7 @@ func ContextGetWork[S process.Sendable](pctx process.Context, agnt S, from proce
 func ContextSubmitProcessedWork[S process.Sendable](pctx process.Context, agnt S, work *workItem) (*workItem, bool) {
 	s, ok := agent.ContextGetAndUpdate(pctx, agnt, func(state *state) state {
 		state.receivedProcessed(work)
-		if state.wanted > state.generated && state.generated%10000 == 0 || state.generated > state.processed && state.processed%10000 == 0 {
+		if state.wanted > state.generated && state.generated%100 == 0 || state.wanted == state.generated && state.generated > state.processed && state.processed%100 == 0 {
 			slog.WarnContext(pctx.Context(), "Submitted work", slog.Uint64("wanted", state.wanted), slog.Uint64("generated", state.generated), slog.Uint64("processed", state.processed))
 		}
 		if state.processed == state.wanted {

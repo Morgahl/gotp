@@ -9,6 +9,7 @@ import (
 func Listen(addr string, cert tls.Certificate) (net.Listener, error) {
 	if _, _, err := net.SplitHostPort(addr); err != nil {
 		var netErr *net.AddrError
+		// TODO: string matching an error here?
 		if errors.As(err, &netErr) && netErr.Err == "missing port in address" {
 			addr = net.JoinHostPort(addr, "0")
 		} else {
