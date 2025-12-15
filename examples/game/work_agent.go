@@ -39,18 +39,17 @@ func ContextGetWork[S process.Sendable](pctx process.Context, agnt S, from proce
 	if !ok || !s.next {
 		return nil, false
 	}
-	slog.Debug("Generated work", "wanted", s.wanted, "generated", s.generated, "processed", s.processed)
 	return s.workItem, s.next
 }
 
 func ContextSubmitProcessedWork[S process.Sendable](pctx process.Context, agnt S, work *workItem) (*workItem, bool) {
 	s, ok := agent.ContextGetAndUpdate(pctx, agnt, func(state *state) state {
 		state.receivedProcessed(work)
-		if state.wanted > state.generated && state.generated%100 == 0 || state.generated > state.processed && state.processed%100 == 0 {
-			slog.DebugContext(pctx.Context(), "Submitted work", slog.Uint64("wanted", state.wanted), slog.Uint64("generated", state.generated), slog.Uint64("processed", state.processed))
+		if state.wanted > state.generated && state.generated%100 == 0 || state.wanted == state.generated && state.generated > state.processed && state.processed%100 == 0 {
+			slog.WarnContext(pctx.Context(), "Submitted work", slog.Uint64("wanted", state.wanted), slog.Uint64("generated", state.generated), slog.Uint64("processed", state.processed))
 		}
 		if state.processed == state.wanted {
-			slog.DebugContext(pctx.Context(), "All work processed", slog.Uint64("wanted", state.wanted), slog.Uint64("generated", state.generated), slog.Uint64("processed", state.processed))
+			slog.InfoContext(pctx.Context(), "All work processed", slog.Uint64("wanted", state.wanted), slog.Uint64("generated", state.generated), slog.Uint64("processed", state.processed))
 			agent.ContextStop(pctx, agnt, process.NORMAL)
 		}
 		return *state

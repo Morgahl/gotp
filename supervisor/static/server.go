@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/Morgahl/gotp"
-	"github.com/Morgahl/gotp/debug"
+	"github.com/Morgahl/gotp/dbg"
 	"github.com/Morgahl/gotp/gen_server"
 	"github.com/Morgahl/gotp/internal/ctx"
 	"github.com/Morgahl/gotp/process"
@@ -49,6 +49,7 @@ func (s *server) Init(pctx process.Context, opts gotp.Options) (cont gen_server.
 		if err := s.startChild(pctx, spec); err != nil {
 			return gen_server.NoCont[process.Message](), err
 		}
+		pctx.ProcessPending()
 	}
 
 	return gen_server.NoCont[process.Message](), nil
@@ -77,7 +78,7 @@ func (s *server) HandleCall(pctx process.Context, msg process.Message, _ process
 		}
 	}
 
-	debug.Throw("StaticSupervisor.HandleCall: unknown message type %T", msg)
+	dbg.Throw("StaticSupervisor.HandleCall: unknown message type %T", msg)
 	panic("unreachable code")
 }
 

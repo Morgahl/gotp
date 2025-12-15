@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	"github.com/Morgahl/gotp"
-	"github.com/Morgahl/gotp/debug"
+	"github.com/Morgahl/gotp/dbg"
 )
 
 const (
@@ -249,7 +249,7 @@ func (s signalType) Atom() gotp.Atom {
 	case WHERE_IS_REPLY_SIGNAL:
 		return WHERE_IS_REPLY
 	default:
-		debug.Throw("process.signalType.String: unknown signal type %d", s)
+		dbg.Throw("process.signalType.String: unknown signal type %d", s)
 		panic("unreachable")
 	}
 }

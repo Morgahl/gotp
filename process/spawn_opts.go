@@ -2,7 +2,7 @@ package process
 
 import (
 	"github.com/Morgahl/gotp"
-	"github.com/Morgahl/gotp/debug"
+	"github.com/Morgahl/gotp/assert"
 )
 
 type SpawnOpt func(*process)
@@ -13,24 +13,21 @@ func Link(ref Ref) SpawnOpt {
 		Ref:     ref,
 		Message: ref,
 	})
-	// TODO: A send like this might deadlock during building as the process is not receiving yet
 	return func(p *process) {
-		debug.Assert(p.state == STARTING_STATE, "process must be in STARTING_STATE for spawn options to be applied")
-		p.send(s)
+		assert.Equal(p.state, STARTING_STATE, "process must be in STARTING_STATE for spawn options to be applied")
+		p.handleSignal(s)
 	}
 }
 
-// TODO: rethink the *process passing here we may want this to just be a builder struct instead for safety
 func Monitored(ref Ref) SpawnOpt {
 	s := monitorSignal(RequestMsg[Ref]{
 		From:    ref.pid,
 		Ref:     ref,
 		Message: ref,
 	})
-	// TODO: A send like this might deadlock during building as the process is not receiving yet
 	return func(p *process) {
-		debug.Assert(p.state == STARTING_STATE, "process must be in STARTING_STATE for spawn options to be applied")
-		p.send(s)
+		assert.Equal(p.state, STARTING_STATE, "process must be in STARTING_STATE for spawn options to be applied")
+		p.handleSignal(s)
 	}
 }
 
@@ -39,13 +36,15 @@ func MailboxSize(size int) SpawnOpt {
 		size = MAILBOX_SIZE
 	}
 	return func(p *process) {
-		debug.Assert(p.state == STARTING_STATE, "process must be in STARTING_STATE for spawn options to be applied")
+		assert.Equal(p.state, STARTING_STATE, "process must be in STARTING_STATE for spawn options to be applied")
 		if p.mailbox == nil {
 			p.mailbox = make([]Message, 0, size)
 		} else {
 			capacity := cap(p.mailbox)
 			if capacity < size {
+				oldMailbox := p.mailbox
 				p.mailbox = make([]Message, 0, size)
+				copy(p.mailbox, oldMailbox)
 			}
 		}
 	}
@@ -56,7 +55,7 @@ func ChannelSize(size int) SpawnOpt {
 		size = CHANNEL_SIZE
 	}
 	return func(p *process) {
-		debug.Assert(p.state == STARTING_STATE, "process must be in STARTING_STATE for spawn options to be applied")
+		assert.Equal(p.state, STARTING_STATE, "process must be in STARTING_STATE for spawn options to be applied")
 		if cap(p.signalChan) < size {
 			oldChan := p.signalChan
 			p.signalChan = make(chan signal[Message], size)
@@ -72,8 +71,8 @@ func ChannelSize(size int) SpawnOpt {
 
 func Named(name gotp.Atom) SpawnOpt {
 	return func(p *process) {
-		debug.Assert(p.state == STARTING_STATE, "process must be in STARTING_STATE for spawn options to be applied")
-		debug.Assert(p.name == "", "process name must be empty when setting it")
+		assert.Equal(p.state, STARTING_STATE, "process must be in STARTING_STATE for spawn options to be applied")
+		assert.Equal(p.name, "", "process name must be empty when setting it")
 		p.name = name
 	}
 }

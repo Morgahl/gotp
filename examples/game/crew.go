@@ -63,7 +63,7 @@ func (f *Crew) ChildSpec() supervisor.ChildSpec {
 }
 
 func (f *Crew) Init(pctx process.Context, _ any) (c gen_server.Continue[any], err error) {
-	slog.DebugContext(pctx.Context(), "Crew.Init", slog.Any("agent", f.agent))
+	// slog.DebugContext(pctx.Context(), "Crew.Init", slog.Any("agent", f.agent))
 	pctx.TrapExit(true)
 	return gen_server.Cont[any](atom_GET_WORK), nil
 }

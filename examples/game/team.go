@@ -30,7 +30,7 @@ func treeOfTeams(workAgent, team gotp.Atom, teams [][]gotp.Atom, crew []gotp.Ato
 		if team == "teams" {
 			supervisors = append(supervisors, treeOfTeams(workAgent, t, teams[1:], crew))
 		} else {
-			supervisors = append(supervisors, treeOfTeams(workAgent, team+"_"+t, teams[1:], crew))
+			supervisors = append(supervisors, treeOfTeams(workAgent, team+t, teams[1:], crew))
 		}
 	}
 	if team == "teams" {

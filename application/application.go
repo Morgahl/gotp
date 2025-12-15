@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/Morgahl/gotp"
-	"github.com/Morgahl/gotp/node"
+	"github.com/Morgahl/gotp/internal/node"
 	"github.com/Morgahl/gotp/supervisor"
 )
 

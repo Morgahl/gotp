@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/Morgahl/gotp"
+	"github.com/Morgahl/gotp/internal/pid"
 )
 
 type Sendable interface {
@@ -100,6 +101,7 @@ PROCESS_MESSAGES:
 	case <-done:
 		goto EXIT
 	}
+
 EXIT:
 	var zero M
 	if pctx.process.state == EXITING_STATE || pctx.process.state == EXITED_STATE {
@@ -118,6 +120,6 @@ func Exit[S Sendable](to S, reason error) {
 		sendPID(v, exitSignal(no_FLAGS, v, Ref{}, reason))
 
 	case gotp.Atom:
-		sendNamed(v, exitSignal(no_FLAGS, PIDZero(), Ref{}, reason))
+		sendNamed(v, exitSignal(no_FLAGS, pid.Zero(), Ref{}, reason))
 	}
 }

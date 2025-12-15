@@ -1,17 +1,18 @@
 package process
 
 import (
-	"runtime"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/Morgahl/gotp"
-	"github.com/Morgahl/gotp/debug"
+	"github.com/Morgahl/gotp/dbg"
+	"github.com/Morgahl/gotp/internal/pid"
 )
 
 const (
-	registry_DEFAULT_SIZE = 100
+	registry_DEFAULT_SIZE = 1024
 )
 
 var (
@@ -26,8 +27,8 @@ var (
 	nameRegistry   map[gotp.Atom]Ref
 	removedNames   int
 
-	lastGC     = time.Now()
-	gcInterval = 60 * time.Second
+	gcInterval = 10 * time.Second
+	lastGC     = time.Now().Add(time.Minute)
 )
 
 func init() {
@@ -38,11 +39,11 @@ func init() {
 
 func nextPID() PID {
 	id := atomic.AddUint64(&localID, 1)
-	if id > ID_MASK {
+	if id > pid.ID_MASK {
 		stepSerial()
-		id = 1
+		id = 0
 	}
-	return newPID(0, id, uint8(atomic.LoadUint32(&serial)&SERIAL_MASK))
+	return pid.NewPID(0, id, uint8(atomic.LoadUint32(&serial)&pid.SERIAL_MASK))
 }
 
 func stepSerial() {
@@ -54,7 +55,7 @@ func registerPID(pid PID, ref Ref) func() {
 	pidRegistryMu.Lock()
 	if _, exists := pidRegistry[pid]; exists {
 		pidRegistryMu.Unlock()
-		debug.Throw("process with PID %s already registered", pid)
+		dbg.Throw("process with PID %s already registered", pid)
 	}
 
 	pidRegistry[pid] = ref
@@ -63,11 +64,6 @@ func registerPID(pid PID, ref Ref) func() {
 		pidRegistryMu.Lock()
 		delete(pidRegistry, pid)
 		removedPIDs++
-		if removedPIDs*10 > len(pidRegistry) {
-			pidRegistryMu.Unlock()
-			gcPID()
-			return
-		}
 		pidRegistryMu.Unlock()
 	}
 }
@@ -95,7 +91,7 @@ func registerNamed(name gotp.Atom, ref Ref) func() {
 	nameRegistryMu.Lock()
 	if _, exists := nameRegistry[name]; exists {
 		nameRegistryMu.Unlock()
-		debug.Throw("process with name %s already registered", name)
+		dbg.Throw("process with name %s already registered", name)
 	}
 	nameRegistry[name] = ref
 	nameRegistryMu.Unlock()
@@ -103,11 +99,6 @@ func registerNamed(name gotp.Atom, ref Ref) func() {
 		nameRegistryMu.Lock()
 		delete(nameRegistry, name)
 		removedNames++
-		if removedNames*4 > len(nameRegistry) {
-			nameRegistryMu.Unlock()
-			gcName()
-			return
-		}
 		nameRegistryMu.Unlock()
 	}
 }
@@ -137,44 +128,52 @@ func gcWaiter() {
 			time.Sleep(gcInterval - since)
 			continue
 		}
-		gc()
+		started := time.Now()
+		pids, names := gc()
+		slog.Warn("Garbage collection performed", slog.Int("pids", pids), slog.Int("names", names), slog.Duration("took", time.Since(started)))
 	}
 }
 
-func gc() {
+func gc() (pids, names int) {
 	if time.Since(lastGC) < gcInterval {
 		return
 	}
-
-	gcPID()
-	gcName()
-
+	pids = gcPID()
+	names = gcName()
 	lastGC = time.Now()
-	runtime.GC()
+	return
 }
 
-func gcPID() {
+func gcPID() (count int) {
 	pidRegistryMu.Lock()
+	if removedPIDs == 0 || len(pidRegistry) <= registry_DEFAULT_SIZE {
+		pidRegistryMu.Unlock()
+		return count
+	}
 	newRegistry := make(map[PID]Ref, max(len(pidRegistry), registry_DEFAULT_SIZE))
 	for k, v := range pidRegistry {
-		if v.IsValid() {
-			newRegistry[k] = v
-		}
+		newRegistry[k] = v
 	}
 	pidRegistry = newRegistry
+	count = removedPIDs
 	removedPIDs = 0
 	pidRegistryMu.Unlock()
+	return count
 }
 
-func gcName() {
+func gcName() (count int) {
 	nameRegistryMu.Lock()
+	if removedNames == 0 || len(nameRegistry) <= registry_DEFAULT_SIZE {
+		nameRegistryMu.Unlock()
+		return count
+	}
 	newNameRegistry := make(map[gotp.Atom]Ref, max(len(nameRegistry), registry_DEFAULT_SIZE))
 	for k, v := range nameRegistry {
-		if v.IsValid() {
-			newNameRegistry[k] = v
-		}
+		newNameRegistry[k] = v
 	}
 	nameRegistry = newNameRegistry
+	count = removedNames
 	removedNames = 0
 	nameRegistryMu.Unlock()
+	return count
 }

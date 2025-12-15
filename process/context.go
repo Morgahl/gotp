@@ -67,6 +67,24 @@ func (c *Context) SendAfter(msg Message, delay time.Duration) *time.Timer {
 	return time.AfterFunc(delay, func() { c.process.send(messageSignal(no_FLAGS, msg)) })
 }
 
+// ProcessPending processes any pending signals for the current process. Since we are ultimately still limited by a
+// channel while operating within a receive loop we need a way to process the current pending signals in cases where
+// deadlock might be found.
+func (c *Context) ProcessPending() {
+	switch c.process.state {
+	case STARTING_STATE, STARTED_STATE:
+		select {
+		case s, ok := <-c.process.signalChan:
+			if !ok {
+				return
+			}
+			c.process.handleSignal(s)
+		default:
+			return
+		}
+	}
+}
+
 func (c *Context) Exit(reason error) {
 	c.process.send(exitSignal(no_FLAGS, c.process.pid, newRef(c.process), reason))
 }

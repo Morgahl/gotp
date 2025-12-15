@@ -3,11 +3,19 @@ package process
 import (
 	"context"
 	"errors"
+	"runtime"
 	"slices"
 
 	"github.com/Morgahl/gotp"
-	"github.com/Morgahl/gotp/debug"
+	"github.com/Morgahl/gotp/assert"
+	"github.com/Morgahl/gotp/dbg"
+	"github.com/Morgahl/gotp/internal/pid"
 )
+
+type PID = pid.PID
+
+func ComparePID(a, b PID) int { return pid.Compare(a, b) }
+func PIDZero() PID            { return pid.Zero() }
 
 type Startable interface {
 	Start(opts ...SpawnOpt) (PID, error)
@@ -45,22 +53,33 @@ func build(opts []SpawnOpt) *process {
 		monitors:   newRefMap(),
 		signalChan: make(chan signal[Message], CHANNEL_SIZE),
 	}
+	p.context, p.contextCancel = context.WithCancelCause(context.Background())
+	p.context = context.WithValue(p.context, gotp.Atom("pid"), p.pid)
 	for _, opt := range opts {
 		opt(p)
 	}
 	if p.mailbox == nil {
 		p.mailbox = make([]Message, 0, MAILBOX_SIZE)
 	}
-	p.context, p.contextCancel = context.WithCancelCause(context.Background())
-	p.context = context.WithValue(p.context, gotp.Atom("pid"), p.pid)
 	if p.name != "" {
 		p.context = context.WithValue(p.context, gotp.Atom("name"), p.name)
 	}
 	return p
 }
 
+func finalizer(p *process) {
+	// if p.exitReason != nil {
+	// 	p.contextCancel(p.exitReason)
+	// }
+	// p.links.m = nil
+	// p.monitors.m = nil
+	// p.mailbox = nil
+	// p.signalChan = nil
+}
+
 func Spawn(fn RunFn, opts ...SpawnOpt) Ref {
 	p := build(opts)
+	runtime.SetFinalizer(p, finalizer)
 	p.state = STARTED_STATE
 	ref := newRef(p)
 	p.deregPidHandle = registerPID(p.pid, ref)
@@ -80,8 +99,9 @@ func SpawnMonitor(fn RunFn, monitor Ref, opts ...SpawnOpt) Ref {
 }
 
 func (p *process) run(runFn RunFn) {
+	pctx := newContext(p)
 	defer func() {
-		p.exitReason = debug.Recover(recover(), "process.run", p.exitReason)
+		p.exitReason = dbg.Recover(recover(), "process.run", p.exitReason)
 		p.contextCancel(p.exitReason)
 		if p.deregNameHandle != nil {
 			p.deregNameHandle()
@@ -98,10 +118,13 @@ func (p *process) run(runFn RunFn) {
 			ref.send(exitSignal(link_FLAG, p.pid, ref, p.exitReason))
 		}
 		close(p.signalChan)
+		for range p.signalChan {
+			// drain the channel
+		}
 		p.signalChan = nil
 		p.state = EXITED_STATE
 	}()
-	if err := runFn(newContext(p)); err != nil {
+	if err := runFn(pctx); err != nil {
 		p.exitReason = errors.Join(p.exitReason, err)
 	}
 }
@@ -270,48 +293,46 @@ func (p *process) aliveReply(r ReplyMsg[error]) {
 
 // handleSignal is always called from a functions that has the mailboxLock write-locked as well as the stateLock read-locked.
 func (p *process) handleSignal(s signal[Message]) {
-	switch p.state {
-	case STARTED_STATE:
-		switch s._type {
-		case LINK_SIGNAL:
-			if s.flags.IsRequest() {
-				re := debug.AssertType[RequestMsg[Ref]](s.message, "process.handleSignal: expected Ref for LINK_SIGNAL, got %T", s.message)
-				p.linkRequest(re)
-			} else if s.flags.IsReply() {
-				re := debug.AssertType[ReplyMsg[Ref]](s.message, "process.handleSignal: expected Ref for LINK_REPLY_SIGNAL, got %T", s.message)
-				p.linkReply(re)
-			} else {
-				debug.Throw("process.handleSignal: unexpected flags for LINK_SIGNAL: %s", s.flags)
-			}
-		case UNLINK_SIGNAL:
-			re := debug.AssertType[RequestMsg[Ref]](s.message, "process.handleSignal: expected Ref for UNLINK_SIGNAL, got %T", s.message)
-			p.unlink(re)
-		case EXIT_SIGNAL:
-			e := debug.AssertType[exitSig](s.message, "process.handleSignal: expected exit for EXIT_SIGNAL, got %T", s.message)
-			p.handleExitSignal(s.flags, e)
-		case MONITOR_SIGNAL:
-			re := debug.AssertType[RequestMsg[Ref]](s.message, "process.handleSignal: expected Ref for MONITOR_SIGNAL, got %T", s.message)
-			p.monitor(re)
-		case DE_MONITOR_SIGNAL:
-			re := debug.AssertType[RequestMsg[Ref]](s.message, "process.handleSignal: expected Ref for DE_MONITOR_SIGNAL, got %T", s.message)
-			p.deMonitor(re)
-		case DOWN_SIGNAL:
-			down := debug.AssertType[DownMsg](s.message, "process.handleSignal: expected exit for DOWN_SIGNAL, got %T", s.message)
-			p.down(down)
-		case ALIVE_REQUEST_SIGNAL:
-			req := debug.AssertType[RequestMsg[Message]](s.message, "process.handleSignal: expected message for ALIVE_REQUEST_SIGNAL, got %T", s.message)
-			p.aliveRequest(req)
-		case ALIVE_REPLY_SIGNAL:
-			err := debug.AssertType[ReplyMsg[error]](s.message, "process.handleSignal: expected Reply[error] for ALIVE_REPLY_SIGNAL, got %T", s.message)
-			p.aliveReply(err)
-		case MESSAGE_SIGNAL:
-			p.pushMessage(s.message)
-		default:
-			// If this is ever hit we should either expect a bad implementation or a new signal type
-			// has been added that we don't handle yet.
-			debug.Throw("process.handleSignal: unknown signal type: %s", s._type)
-			panic("unreachable")
+	assert.AssertF(p.state == STARTING_STATE || p.state == STARTED_STATE, "process.handleSignal: unexpected process state %s for signal: %#v", p.state, s)
+	switch s._type {
+	case LINK_SIGNAL:
+		if s.flags.IsRequest() {
+			re := assert.TypeF[RequestMsg[Ref]](s.message, "process.handleSignal: expected Ref for LINK_SIGNAL, got %T")
+			p.linkRequest(re)
+		} else if s.flags.IsReply() {
+			re := assert.TypeF[ReplyMsg[Ref]](s.message, "process.handleSignal: expected Ref for LINK_REPLY_SIGNAL, got %T")
+			p.linkReply(re)
+		} else {
+			dbg.Throw("process.handleSignal: unexpected flags for LINK_SIGNAL: %s", s.flags)
 		}
+	case UNLINK_SIGNAL:
+		re := assert.TypeF[RequestMsg[Ref]](s.message, "process.handleSignal: expected Ref for UNLINK_SIGNAL, got %T")
+		p.unlink(re)
+	case EXIT_SIGNAL:
+		e := assert.TypeF[exitSig](s.message, "process.handleSignal: expected exit for EXIT_SIGNAL, got %T")
+		p.handleExitSignal(s.flags, e)
+	case MONITOR_SIGNAL:
+		re := assert.TypeF[RequestMsg[Ref]](s.message, "process.handleSignal: expected Ref for MONITOR_SIGNAL, got %T")
+		p.monitor(re)
+	case DE_MONITOR_SIGNAL:
+		re := assert.TypeF[RequestMsg[Ref]](s.message, "process.handleSignal: expected Ref for DE_MONITOR_SIGNAL, got %T")
+		p.deMonitor(re)
+	case DOWN_SIGNAL:
+		down := assert.TypeF[DownMsg](s.message, "process.handleSignal: expected exit for DOWN_SIGNAL, got %T")
+		p.down(down)
+	case ALIVE_REQUEST_SIGNAL:
+		req := assert.TypeF[RequestMsg[Message]](s.message, "process.handleSignal: expected message for ALIVE_REQUEST_SIGNAL, got %T")
+		p.aliveRequest(req)
+	case ALIVE_REPLY_SIGNAL:
+		err := assert.TypeF[ReplyMsg[error]](s.message, "process.handleSignal: expected Reply[error] for ALIVE_REPLY_SIGNAL, got %T")
+		p.aliveReply(err)
+	case MESSAGE_SIGNAL:
+		p.pushMessage(s.message)
+	default:
+		// If this is ever hit we should either expect a bad implementation or a new signal type
+		// has been added that we don't handle yet.
+		dbg.Throw("process.handleSignal: unknown signal type: %s", s._type)
+		panic("unreachable")
 	}
 }
 
@@ -324,8 +345,8 @@ type refMap struct {
 func newRefMap() refMap { return refMap{m: make(map[PID][]Ref, 16)} }
 
 func (rl *refMap) push(id PID, re Ref) {
-	debug.RefuteFunc(id.IsZero, "refList.push: cannot push zero PID")
-	debug.AssertFunc(re.IsValid, "refList.push: cannot push invalid reference")
+	assert.NotZero(id, "refList.push: cannot push zero PID")
+	assert.Func(re.IsValid, "refList.push: cannot push invalid reference")
 	v, ok := rl.m[id]
 	if !ok {
 		v = make([]Ref, 0, 4)
@@ -336,8 +357,8 @@ func (rl *refMap) push(id PID, re Ref) {
 }
 
 func (rl *refMap) remove(id PID, re Ref) bool {
-	debug.RefuteFunc(id.IsZero, "refList.remove: cannot remove zero PID")
-	debug.AssertFunc(re.IsValid, "refList.remove: cannot remove invalid reference")
+	assert.NotZero(id, "refList.push: cannot remove zero PID")
+	assert.Func(re.IsValid, "refList.remove: cannot remove invalid reference")
 	vs, ok := rl.m[id]
 	if !ok {
 		return false
@@ -356,8 +377,8 @@ func (rl *refMap) remove(id PID, re Ref) bool {
 }
 
 func (rl *refMap) contains(id PID, re Ref) bool {
-	debug.RefuteFunc(id.IsZero, "refList.contains: cannot check zero PID")
-	debug.AssertFunc(re.IsValid, "refList.contains: cannot check invalid reference")
+	assert.NotZero(id, "refList.push: cannot check zero PID")
+	assert.Func(re.IsValid, "refList.contains: cannot check invalid reference")
 	vs, ok := rl.m[id]
 	if !ok {
 		return false
@@ -420,7 +441,7 @@ func (s processState) String() string {
 	case EXITED_STATE:
 		return "EXITED"
 	default:
-		debug.Throw("processState.String: unknown process state: %d", s)
+		dbg.Throw("processState.String: unknown process state: %d", s)
 		return "UNKNOWN"
 	}
 }
