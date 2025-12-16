@@ -35,8 +35,8 @@ type process struct {
 	deregNameHandle func()
 
 	// message passing structures
-	mailbox    []Message
-	signalChan chan signal[Message]
+	mailbox    []gotp.Term
+	signalChan chan signal[gotp.Term]
 
 	// bookkeeping structures
 	messageSkips []int
@@ -51,7 +51,7 @@ func build(opts []SpawnOpt) *process {
 		pid:        nextPID(),
 		links:      newRefMap(),
 		monitors:   newRefMap(),
-		signalChan: make(chan signal[Message], CHANNEL_SIZE),
+		signalChan: make(chan signal[gotp.Term], CHANNEL_SIZE),
 	}
 	p.context, p.contextCancel = context.WithCancelCause(context.Background())
 	p.context = context.WithValue(p.context, gotp.Atom("pid"), p.pid)
@@ -59,7 +59,7 @@ func build(opts []SpawnOpt) *process {
 		opt(p)
 	}
 	if p.mailbox == nil {
-		p.mailbox = make([]Message, 0, MAILBOX_SIZE)
+		p.mailbox = make([]gotp.Term, 0, MAILBOX_SIZE)
 	}
 	if p.name != "" {
 		p.context = context.WithValue(p.context, gotp.Atom("name"), p.name)
@@ -129,7 +129,7 @@ func (p *process) run(runFn RunFn) {
 	}
 }
 
-func (p *process) send(s signal[Message]) {
+func (p *process) send(s signal[gotp.Term]) {
 	defer func() { recover() }()
 	p.signalChan <- s
 }
@@ -181,7 +181,7 @@ func (p *process) garbageCollect() {
 }
 
 // this must always be called while the stateLock is at least read-locked and the mailboxLock is write-locked
-func (p *process) pushMessage(m Message) {
+func (p *process) pushMessage(m gotp.Term) {
 	if p.state == STARTED_STATE {
 		p.mailbox = append(p.mailbox, m)
 	}
@@ -273,7 +273,7 @@ func (p *process) down(down DownMsg) {
 }
 
 // this must always be called while the stateLock is at least read-locked and the mailboxLock is write-locked
-func (p *process) aliveRequest(req RequestMsg[Message]) {
+func (p *process) aliveRequest(req RequestMsg[gotp.Term]) {
 	var err error
 	if p.state != STARTED_STATE {
 		err = errors.New("process not started")
@@ -292,7 +292,7 @@ func (p *process) aliveReply(r ReplyMsg[error]) {
 }
 
 // handleSignal is always called from a functions that has the mailboxLock write-locked as well as the stateLock read-locked.
-func (p *process) handleSignal(s signal[Message]) {
+func (p *process) handleSignal(s signal[gotp.Term]) {
 	assert.AssertF(p.state == STARTING_STATE || p.state == STARTED_STATE, "process.handleSignal: unexpected process state %s for signal: %#v", p.state, s)
 	switch s._type {
 	case LINK_SIGNAL:
@@ -321,7 +321,7 @@ func (p *process) handleSignal(s signal[Message]) {
 		down := assert.TypeF[DownMsg](s.message, "process.handleSignal: expected exit for DOWN_SIGNAL, got %T")
 		p.down(down)
 	case ALIVE_REQUEST_SIGNAL:
-		req := assert.TypeF[RequestMsg[Message]](s.message, "process.handleSignal: expected message for ALIVE_REQUEST_SIGNAL, got %T")
+		req := assert.TypeF[RequestMsg[gotp.Term]](s.message, "process.handleSignal: expected message for ALIVE_REQUEST_SIGNAL, got %T")
 		p.aliveRequest(req)
 	case ALIVE_REPLY_SIGNAL:
 		err := assert.TypeF[ReplyMsg[error]](s.message, "process.handleSignal: expected Reply[error] for ALIVE_REPLY_SIGNAL, got %T")

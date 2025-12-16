@@ -108,7 +108,7 @@ func (f *Crew) HandleCast(pctx process.Context, work *workItem) (gen_server.Cont
 	return gen_server.Cont[any](atom_GET_WORK), nil
 }
 
-func (f *Crew) HandleInfo(pctx process.Context, msg process.Message) (gen_server.Continue[any], error) {
+func (f *Crew) HandleInfo(pctx process.Context, msg gotp.Term) (gen_server.Continue[any], error) {
 	switch m := msg.(type) {
 	case process.ExitMsg:
 		if m.PID == pctx.PID() {

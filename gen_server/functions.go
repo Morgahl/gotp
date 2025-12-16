@@ -3,6 +3,7 @@ package gen_server
 import (
 	"time"
 
+	"github.com/Morgahl/gotp"
 	"github.com/Morgahl/gotp/process"
 )
 
@@ -12,10 +13,10 @@ const (
 
 func Start[
 	I any,
-	Cl process.Message,
-	R process.Message,
-	Cs process.Message,
-	Ct process.Message,
+	Cl gotp.Term,
+	R gotp.Term,
+	Cs gotp.Term,
+	Ct gotp.Term,
 ](serverable GenServer[I, Cl, R, Cs, Ct], initArg I, opts ...process.SpawnOpt) (process.Ref, error) {
 	s := server[I, Cl, R, Cs, Ct]{serverable: serverable}
 	pid, errCh := s.setupProc(initArg, opts...)
@@ -24,17 +25,17 @@ func Start[
 
 func StartLink[
 	I any,
-	Cl process.Message,
-	R process.Message,
-	Cs process.Message,
-	Ct process.Message,
+	Cl gotp.Term,
+	R gotp.Term,
+	Cs gotp.Term,
+	Ct gotp.Term,
 ](serverable GenServer[I, Cl, R, Cs, Ct], initArg I, linked process.Ref, opts ...process.SpawnOpt) (process.Ref, error) {
 	s := server[I, Cl, R, Cs, Ct]{serverable: serverable}
 	pid, errCh := s.setupLinkedProc(initArg, linked, opts...)
 	return pid, <-errCh
 }
 
-func Call[Cl process.Message, R process.Message, S process.Sendable](to S, from process.PID, msg Cl, timeout time.Duration) (resp R, replied bool) {
+func Call[Cl gotp.Term, R gotp.Term, S process.Sendable](to S, from process.PID, msg Cl, timeout time.Duration) (resp R, replied bool) {
 	if timeout < 0 {
 		timeout = DEFAULT_TIMEOUT
 	}
@@ -52,7 +53,7 @@ func Call[Cl process.Message, R process.Message, S process.Sendable](to S, from 
 	}
 }
 
-func ContextCall[Cl process.Message, R process.Message, S process.Sendable](to S, from process.Context, msg Cl, timeout time.Duration) (resp R, replied bool) {
+func ContextCall[Cl gotp.Term, R gotp.Term, S process.Sendable](to S, from process.Context, msg Cl, timeout time.Duration) (resp R, replied bool) {
 	if timeout < 0 {
 		timeout = DEFAULT_TIMEOUT
 	}
@@ -70,10 +71,10 @@ func ContextCall[Cl process.Message, R process.Message, S process.Sendable](to S
 	}
 }
 
-func Cast[Cl process.Message, S process.Sendable](to S, msg Cl) {
+func Cast[Cl gotp.Term, S process.Sendable](to S, msg Cl) {
 	process.Send(to, CastMsg(msg))
 }
 
-func ContextCast[Cl process.Message, S process.Sendable](to S, pctx process.Context, msg Cl) {
+func ContextCast[Cl gotp.Term, S process.Sendable](to S, pctx process.Context, msg Cl) {
 	process.ContextSend(pctx, to, CastMsg(msg))
 }

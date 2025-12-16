@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/Morgahl/gotp"
 	"github.com/Morgahl/gotp/process"
 )
 
@@ -64,13 +65,13 @@ func Stop[C any](reason C) Continue[C] {
 	return Continue[C]{atom: STOP, arg: reason}
 }
 
-type call[M process.Message, R process.Message] struct {
+type call[M gotp.Term, R gotp.Term] struct {
 	from process.PID
 	req  M
 	resp chan R
 }
 
-func CallMsg[M process.Message, R process.Message](from process.PID, req M) call[M, R] {
+func CallMsg[M gotp.Term, R gotp.Term](from process.PID, req M) call[M, R] {
 	return call[M, R]{from: from, req: req, resp: make(chan R, 1)}
 }
 
@@ -82,11 +83,11 @@ func (c call[M, R]) LogValue() slog.Value {
 	return slog.StringValue(c.String())
 }
 
-type cast[M process.Message] struct {
+type cast[M gotp.Term] struct {
 	req M
 }
 
-func CastMsg[M process.Message](req M) cast[M] {
+func CastMsg[M gotp.Term](req M) cast[M] {
 	return cast[M]{req: req}
 }
 

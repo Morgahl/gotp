@@ -68,7 +68,7 @@ func registerPID(pid PID, ref Ref) func() {
 	}
 }
 
-func sendPID(pid PID, msg Message) {
+func sendPID(pid PID, msg gotp.Term) {
 	pidRegistryMu.RLock()
 	proc, exists := pidRegistry[pid]
 	pidRegistryMu.RUnlock()
@@ -103,7 +103,7 @@ func registerNamed(name gotp.Atom, ref Ref) func() {
 	}
 }
 
-func sendNamed(name gotp.Atom, msg Message) {
+func sendNamed(name gotp.Atom, msg gotp.Term) {
 	nameRegistryMu.RLock()
 	ref, exists := nameRegistry[name]
 	nameRegistryMu.RUnlock()

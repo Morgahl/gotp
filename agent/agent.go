@@ -7,7 +7,7 @@ import (
 	"github.com/Morgahl/gotp/supervisor"
 )
 
-var _ gen_server.GenServer[InitFn[int], process.Message, int, process.Message, any] = &agent[int]{}
+var _ gen_server.GenServer[InitFn[int], gotp.Term, int, gotp.Term, any] = &agent[int]{}
 
 type InitFn[T any] func() *T
 
@@ -40,7 +40,7 @@ func (a *agent[T]) Init(pctx process.Context, initFn InitFn[T]) (gen_server.Cont
 	return gen_server.NoCont[any](), nil
 }
 
-func (a *agent[T]) HandleCall(pctx process.Context, msg process.Message, from process.PID) (gen_server.Response[T], gen_server.Continue[any], error) {
+func (a *agent[T]) HandleCall(pctx process.Context, msg gotp.Term, from process.PID) (gen_server.Response[T], gen_server.Continue[any], error) {
 	switch msg := msg.(type) {
 	case GetFn[T]:
 		return gen_server.Reply(msg(*a.state)), gen_server.NoCont[any](), nil
@@ -55,7 +55,7 @@ func (a *agent[T]) HandleCall(pctx process.Context, msg process.Message, from pr
 	}
 }
 
-func (a *agent[T]) HandleCast(pctx process.Context, msg process.Message) (gen_server.Continue[any], error) {
+func (a *agent[T]) HandleCast(pctx process.Context, msg gotp.Term) (gen_server.Continue[any], error) {
 	switch msg := msg.(type) {
 	case UpdateFn[T]:
 		msg(a.state)
@@ -65,7 +65,7 @@ func (a *agent[T]) HandleCast(pctx process.Context, msg process.Message) (gen_se
 	}
 }
 
-func (a *agent[T]) HandleInfo(pctx process.Context, msg process.Message) (gen_server.Continue[any], error) {
+func (a *agent[T]) HandleInfo(pctx process.Context, msg gotp.Term) (gen_server.Continue[any], error) {
 	switch msg := msg.(type) {
 	case process.ExitMsg:
 		if msg.PID == pctx.PID() {
