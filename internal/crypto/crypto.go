@@ -47,7 +47,7 @@ func ComputeHMAC(psk []byte, nonce [NONCE_LENGTH]byte) [MAC_LENGTH]byte {
 	return hmacBytes
 }
 
-func ReadHMAC(conn io.Reader) ([MAC_LENGTH]byte, error) {
+func ReadMAC(conn io.Reader) ([MAC_LENGTH]byte, error) {
 	var mac [MAC_LENGTH]byte
 	n, err := io.ReadFull(conn, mac[:])
 	if err != nil {

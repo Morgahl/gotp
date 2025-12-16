@@ -167,8 +167,8 @@ func (s *Server) listen() {
 
 			// HandshakeSYN <<<< Client
 			nonce := assert.OkF(icrypto.ReadNonce(c))("Failed to read nonce from %s: %s", c.RemoteAddr())
-			hmac := assert.OkF(icrypto.ReadHMAC(c))("Failed to read HMAC from %s: %s", c.RemoteAddr())
-			assert.AssertF(icrypto.VerifyMAC([]byte(cookie), nonce, hmac), "Bad handshake invalid HMAC from %s", c.RemoteAddr())
+			mac := assert.OkF(icrypto.ReadMAC(c))("Failed to read MAC from %s: %s", c.RemoteAddr())
+			assert.AssertF(icrypto.VerifyMAC([]byte(cookie), nonce, mac), "Bad handshake invalid HMAC from %s", c.RemoteAddr())
 
 			// HandshakeSYNACK >>>> Client
 			slog.Info("Building handshake response for client", "addr", c.RemoteAddr())
@@ -182,16 +182,16 @@ func (s *Server) listen() {
 
 			// HandshakeACK <<<< Client
 			rrNonce := assert.OkF(icrypto.ReadNonce(c))("Failed to read nonce from %s: %s", c.RemoteAddr())
-			rrHmac := assert.OkF(icrypto.ReadHMAC(c))("Failed to read HMAC from %s: %s", c.RemoteAddr())
-			assert.AssertF(icrypto.VerifyMAC([]byte(cookie), rrNonce, rrHmac), "Bad handshake invalid HMAC from %s", c.RemoteAddr())
+			rrMac := assert.OkF(icrypto.ReadMAC(c))("Failed to read MAC from %s: %s", c.RemoteAddr())
+			assert.AssertF(icrypto.VerifyMAC([]byte(cookie), rrNonce, rrMac), "Bad handshake invalid HMAC from %s", c.RemoteAddr())
 
 			// Ensure nonces and HMACs are not equal
 			assert.RefuteF(subtle.ConstantTimeCompare(nonce[:], rNonce[:]) == 1, "Bad handshake response nonce cannot match nonce sent to %s", conn.RemoteAddr())
 			assert.RefuteF(subtle.ConstantTimeCompare(nonce[:], rrNonce[:]) == 1, "Bad handshake response nonce cannot match nonce sent to %s", conn.RemoteAddr())
 			assert.RefuteF(subtle.ConstantTimeCompare(rNonce[:], rrNonce[:]) == 1, "Bad handshake response nonce cannot match nonce sent to %s", conn.RemoteAddr())
-			assert.RefuteF(subtle.ConstantTimeCompare(hmac[:], rHmac[:]) == 1, "Bad handshake response HMAC cannot match HMAC sent to %s", conn.RemoteAddr())
-			assert.RefuteF(subtle.ConstantTimeCompare(hmac[:], rrHmac[:]) == 1, "Bad handshake response HMAC cannot match HMAC sent to %s", conn.RemoteAddr())
-			assert.RefuteF(subtle.ConstantTimeCompare(rHmac[:], rrHmac[:]) == 1, "Bad handshake response HMAC cannot match HMAC sent to %s", conn.RemoteAddr())
+			assert.RefuteF(subtle.ConstantTimeCompare(mac[:], rHmac[:]) == 1, "Bad handshake response HMAC cannot match HMAC sent to %s", conn.RemoteAddr())
+			assert.RefuteF(subtle.ConstantTimeCompare(mac[:], rrMac[:]) == 1, "Bad handshake response HMAC cannot match HMAC sent to %s", conn.RemoteAddr())
+			assert.RefuteF(subtle.ConstantTimeCompare(rHmac[:], rrMac[:]) == 1, "Bad handshake response HMAC cannot match HMAC sent to %s", conn.RemoteAddr())
 
 			// Confirm >>>> Client
 			cN := assert.OkF(c.Write([]byte{1}))("Failed to write handshake confirmation to %s: %s", conn.RemoteAddr())

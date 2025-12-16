@@ -15,10 +15,10 @@ import (
 	"github.com/Morgahl/gotp/supervisor"
 )
 
-var _ gen_server.GenServer[gotp.Options, process.Message, process.Message, process.Message, process.Message] = &server{}
+var _ gen_server.GenServer[any, process.Message, process.Message, process.Message, process.Message] = &server[any]{}
 
-type server struct {
-	sup      supervisor.Supervisor[gotp.Options]
+type server[I any] struct {
+	sup      supervisor.Supervisor[I]
 	options  supervisor.Options
 	specs    []supervisor.ChildSpec
 	childIDs map[gotp.Atom]process.PID
@@ -26,11 +26,11 @@ type server struct {
 	sigCount uint64
 }
 
-func (s *server) ChildSpec() supervisor.ChildSpec {
+func (s *server[I]) ChildSpec() supervisor.ChildSpec {
 	return s.sup.ChildSpec()
 }
 
-func (s *server) Init(pctx process.Context, opts gotp.Options) (cont gen_server.Continue[process.Message], err error) {
+func (s *server[I]) Init(pctx process.Context, opts I) (cont gen_server.Continue[process.Message], err error) {
 	pctx.TrapExit(true)
 
 	var options supervisor.Options
@@ -55,7 +55,7 @@ func (s *server) Init(pctx process.Context, opts gotp.Options) (cont gen_server.
 	return gen_server.NoCont[process.Message](), nil
 }
 
-func (s *server) HandleCall(pctx process.Context, msg process.Message, _ process.PID) (resp gen_server.Response[process.Message], cont gen_server.Continue[process.Message], err error) {
+func (s *server[I]) HandleCall(pctx process.Context, msg process.Message, _ process.PID) (resp gen_server.Response[process.Message], cont gen_server.Continue[process.Message], err error) {
 	switch m := msg.(type) {
 	// starting child
 	case supervisor.ChildSpec:
@@ -82,15 +82,15 @@ func (s *server) HandleCall(pctx process.Context, msg process.Message, _ process
 	panic("unreachable code")
 }
 
-func (s *server) HandleCast(pctx process.Context, msg process.Message) (cont gen_server.Continue[process.Message], err error) {
+func (s *server[I]) HandleCast(pctx process.Context, msg process.Message) (cont gen_server.Continue[process.Message], err error) {
 	return gen_server.NoCont[process.Message](), nil
 }
 
-func (s *server) HandleContinue(pctx process.Context, arg process.Message) (cont gen_server.Continue[process.Message], err error) {
+func (s *server[I]) HandleContinue(pctx process.Context, arg process.Message) (cont gen_server.Continue[process.Message], err error) {
 	return gen_server.NoCont[process.Message](), nil
 }
 
-func (s *server) HandleInfo(pctx process.Context, info process.Message) (cont gen_server.Continue[process.Message], err error) {
+func (s *server[I]) HandleInfo(pctx process.Context, info process.Message) (cont gen_server.Continue[process.Message], err error) {
 	defer func() {
 		if r := recover(); r != nil {
 		}
@@ -127,7 +127,7 @@ func (s *server) HandleInfo(pctx process.Context, info process.Message) (cont ge
 	return gen_server.NoCont[process.Message](), nil
 }
 
-func (s *server) Terminate(pctx process.Context, reason error) (newReson error) {
+func (s *server[I]) Terminate(pctx process.Context, reason error) (newReson error) {
 	children := make([]child, 0, len(s.children))
 	for _, c := range s.children {
 		children = append(children, c)
@@ -160,7 +160,7 @@ func (s *server) Terminate(pctx process.Context, reason error) (newReson error) 
 	return reason
 }
 
-func (s *server) findChild(spec supervisor.ChildSpec) (process.PID, bool) {
+func (s *server[I]) findChild(spec supervisor.ChildSpec) (process.PID, bool) {
 	for _, child := range s.children {
 		if child.spec.Equals(spec) {
 			pid := child.ref.PID()
@@ -170,7 +170,7 @@ func (s *server) findChild(spec supervisor.ChildSpec) (process.PID, bool) {
 	return process.PIDZero(), false
 }
 
-func (s *server) findChildByPID(pid process.PID) (child child, ok bool) {
+func (s *server[I]) findChildByPID(pid process.PID) (child child, ok bool) {
 	if pid == process.PIDZero() {
 		return child, false
 	}
@@ -178,7 +178,7 @@ func (s *server) findChildByPID(pid process.PID) (child child, ok bool) {
 	return child, ok
 }
 
-func (s *server) startChild(pctx process.Context, spec supervisor.ChildSpec) error {
+func (s *server[I]) startChild(pctx process.Context, spec supervisor.ChildSpec) error {
 	ref, err := spec.Start(process.Link(pctx.Ref()))
 	if err != nil {
 		return err
@@ -186,7 +186,7 @@ func (s *server) startChild(pctx process.Context, spec supervisor.ChildSpec) err
 	return s.registerChild(spec, ref)
 }
 
-func (s *server) registerChild(spec supervisor.ChildSpec, ref process.Ref) error {
+func (s *server[I]) registerChild(spec supervisor.ChildSpec, ref process.Ref) error {
 	pid := ref.PID()
 	if _, found := s.children[pid]; found {
 		// TODO: this needs to be a well defined error type
@@ -202,7 +202,7 @@ func (s *server) registerChild(spec supervisor.ChildSpec, ref process.Ref) error
 	return nil
 }
 
-func (s *server) deregisterChild(pid process.PID) (deleted bool) {
+func (s *server[I]) deregisterChild(pid process.PID) (deleted bool) {
 	if child, ok := s.children[pid]; ok {
 		if child.spec.Significant {
 			s.sigCount--
@@ -217,7 +217,7 @@ func (s *server) deregisterChild(pid process.PID) (deleted bool) {
 }
 
 // shuouldRestart checks if the child should be restarted based on the restart strategy; assumes that the PID is not the supervisor's PID
-func (s *server) shouldRestart(pid process.PID, reason error) (restart bool) {
+func (s *server[I]) shouldRestart(pid process.PID, reason error) (restart bool) {
 	cs, ok := s.children[pid]
 	if !ok {
 		return false
