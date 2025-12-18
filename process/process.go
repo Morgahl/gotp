@@ -3,19 +3,12 @@ package process
 import (
 	"context"
 	"errors"
-	"runtime"
 	"slices"
 
 	"github.com/Morgahl/gotp"
 	"github.com/Morgahl/gotp/assert"
 	"github.com/Morgahl/gotp/dbg"
-	"github.com/Morgahl/gotp/internal/pid"
 )
-
-type PID = pid.PID
-
-func ComparePID(a, b PID) int { return pid.Compare(a, b) }
-func PIDZero() PID            { return pid.Zero() }
 
 type Startable interface {
 	Start(opts ...SpawnOpt) (PID, error)
@@ -29,10 +22,12 @@ type process struct {
 	flags           ProcessFlags
 	state           processState
 	exitReason      error
-	context         context.Context
-	contextCancel   context.CancelCauseFunc
 	deregPidHandle  func()
 	deregNameHandle func()
+
+	// context management structures
+	context       context.Context
+	contextCancel context.CancelCauseFunc
 
 	// message passing structures
 	mailbox    []gotp.Term
@@ -46,9 +41,9 @@ type process struct {
 	monitors refMap
 }
 
-func build(opts []SpawnOpt) *process {
+func build(pid PID, opts []SpawnOpt) *process {
 	p := &process{
-		pid:        nextPID(),
+		pid:        pid,
 		links:      newRefMap(),
 		monitors:   newRefMap(),
 		signalChan: make(chan signal[gotp.Term], CHANNEL_SIZE),
@@ -67,27 +62,38 @@ func build(opts []SpawnOpt) *process {
 	return p
 }
 
-func finalizer(p *process) {
-	// if p.exitReason != nil {
-	// 	p.contextCancel(p.exitReason)
-	// }
-	// p.links.m = nil
-	// p.monitors.m = nil
-	// p.mailbox = nil
-	// p.signalChan = nil
-}
-
 func Spawn(fn RunFn, opts ...SpawnOpt) Ref {
-	p := build(opts)
-	runtime.SetFinalizer(p, finalizer)
-	p.state = STARTED_STATE
-	ref := newRef(p)
-	p.deregPidHandle = registerPID(p.pid, ref)
-	if p.name != "" {
-		p.deregNameHandle = registerNamed(p.name, ref)
-	}
-	go p.run(fn)
-	return ref
+	// p := build(nextPID(), opts)
+	// ref := newRef(p)
+	// p.deregPidHandle = registerPID(ref)
+	// if p.name != "" {
+	// 	p.deregNameHandle = registerNamed(p.name, ref)
+	// }
+	// p.state = STARTED_STATE
+	// go p.run(fn)
+
+	return registry.spawn(fn, opts)
+	// // pid := nextPID()
+
+	// p := build(nextPID(), opts)
+	// // capture pid and name here so that p (*process) is not captured in the deregHandle closure
+	// pid := p.pid
+	// pName := p.name
+
+	// ref := newRef(p)
+	// pidTree.Store(pid.raw, ref)
+	// if pName != "" {
+	// 	nameTree.Store(string(pName), ref)
+	// }
+	// p.deregHandle = func() {
+	// 	pidTree.Delete(pid.raw)
+	// 	if pName != "" {
+	// 		nameTree.Delete(string(pName))
+	// 	}
+	// }
+	// p.state = STARTED_STATE
+	// go p.run(fn)
+	// return ref
 }
 
 func SpawnLink(fn RunFn, linked Ref, opts ...SpawnOpt) Ref {

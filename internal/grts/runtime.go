@@ -25,7 +25,7 @@ func Run(app application.Application) (err error) {
 
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
-	init_ref = process.Spawn(_init(ctx, app, wg))
+	init_ref = process.Spawn(_init(ctx, app, wg), process.Named(app.Name()))
 	slog.Debug("grts.Run: init process started", slog.Any("pid", init_ref.PID()))
 
 	<-ctx.Done()

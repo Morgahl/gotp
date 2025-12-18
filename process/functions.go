@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/Morgahl/gotp"
-	"github.com/Morgahl/gotp/internal/pid"
 )
 
 type Sendable interface {
@@ -19,11 +18,9 @@ func Send[S Sendable](to S, m gotp.Term) {
 		v.send(messageSignal(no_FLAGS, m))
 
 	case PID:
-		// TODO: this currently contends a global mutex, we should consider a more efficient way to send messages to PIDs
 		sendPID(v, m)
 
 	case gotp.Atom:
-		// TODO: this currently contends a global mutex, we should consider a more efficient way to send messages to named processes
 		sendNamed(v, m)
 	}
 }
@@ -120,6 +117,6 @@ func Exit[S Sendable](to S, reason error) {
 		sendPID(v, exitSignal(no_FLAGS, v, Ref{}, reason))
 
 	case gotp.Atom:
-		sendNamed(v, exitSignal(no_FLAGS, pid.Zero(), Ref{}, reason))
+		sendNamed(v, exitSignal(no_FLAGS, PIDZero(), Ref{}, reason))
 	}
 }

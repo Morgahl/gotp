@@ -15,10 +15,10 @@ import (
 )
 
 const (
-	MIN_DURATION      = 2 * time.Second
-	MID_LOW_DURATION  = 3 * time.Second
-	MID_HIGH_DURATION = 5 * time.Second
-	MAX_DURATION      = 8 * time.Second
+	MIN_DURATION      = 1 * time.Second
+	MID_LOW_DURATION  = 2 * time.Second
+	MID_HIGH_DURATION = 3 * time.Second
+	MAX_DURATION      = 5 * time.Second
 
 	atom_GET_WORK gotp.Atom = "get_work"
 )
@@ -57,7 +57,8 @@ func (f *Crew) ChildSpec() supervisor.ChildSpec {
 		Type:        supervisor.WORKER,
 		Significant: true,
 		Start: func(opts ...process.SpawnOpt) (process.Ref, error) {
-			return gen_server.Start(f, nil, append([]process.SpawnOpt{process.Named(f.id)}, opts...)...)
+			opts = append([]process.SpawnOpt{process.Named(f.id)}, opts...)
+			return gen_server.Start(f, nil, opts...)
 		},
 	}
 }

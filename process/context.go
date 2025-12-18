@@ -10,16 +10,16 @@ import (
 type Context struct {
 	process *process
 	ref     Ref
-	pidMap  map[PID]Ref
-	nameMap map[gotp.Atom]Ref
+	// pidMap  map[PID]Ref
+	// nameMap map[gotp.Atom]Ref
 }
 
 func newContext(process *process) Context {
 	return Context{
 		process: process,
 		ref:     newRef(process),
-		pidMap:  make(map[PID]Ref),
-		nameMap: make(map[gotp.Atom]Ref),
+		// pidMap:  make(map[PID]Ref),
+		// nameMap: make(map[gotp.Atom]Ref),
 	}
 }
 
@@ -96,30 +96,24 @@ func ContextSend[S Sendable](pctx Context, to S, m gotp.Term) {
 		v.send(messageSignal(no_FLAGS, m))
 
 	case PID:
-		if ref, found := pctx.pidMap[v]; found {
-			if ref.IsValid() {
-				ref.send(messageSignal(no_FLAGS, m))
-				return
-			}
-			delete(pctx.pidMap, v)
-		}
-		if ref, found := pidRef(v); found && ref.IsValid() {
-			pctx.pidMap[v] = ref
-			ref.send(messageSignal(no_FLAGS, m))
-		}
+		// if ref, found := pctx.pidMap[v]; found {
+		// 	if ref.IsValid() {
+		// 		ref.send(messageSignal(no_FLAGS, m))
+		// 		return
+		// 	}
+		// 	delete(pctx.pidMap, v)
+		// }
+		pidRef(v).send(messageSignal(no_FLAGS, m))
 
 	case gotp.Atom:
-		if ref, found := pctx.nameMap[v]; found {
-			if ref.IsValid() {
-				ref.send(messageSignal(no_FLAGS, m))
-				return
-			}
-			delete(pctx.nameMap, v)
-		}
-		if ref, found := namedRef(v); found && ref.IsValid() {
-			pctx.nameMap[v] = ref
-			ref.send(messageSignal(no_FLAGS, m))
-		}
+		// if ref, found := pctx.nameMap[v]; found {
+		// 	if ref.IsValid() {
+		// 		ref.send(messageSignal(no_FLAGS, m))
+		// 		return
+		// 	}
+		// 	delete(pctx.nameMap, v)
+		// }
+		namedRef(v).send(messageSignal(no_FLAGS, m))
 	}
 }
 

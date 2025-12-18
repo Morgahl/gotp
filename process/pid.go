@@ -1,4 +1,4 @@
-package pid
+package process
 
 import (
 	"encoding/binary"
@@ -39,7 +39,7 @@ func NewPID(nodeID uint16, id uint64, serial uint8) PID {
 	return PID{raw: raw}
 }
 
-func parse(pidStr string) PID {
+func Parse(pidStr string) PID {
 	var nodeID uint16
 	var id uint64
 	var serial uint8
@@ -50,7 +50,7 @@ func parse(pidStr string) PID {
 	return NewPID(nodeID, id, serial)
 }
 
-func Zero() PID {
+func PIDZero() PID {
 	return PID{}
 }
 
@@ -68,6 +68,14 @@ func (p PID) Serial() uint8 {
 
 func (p PID) NodeID() uint16 {
 	return uint16((p.raw >> NODE_INDEX_SHIFT) & NODE_INDEX_MASK)
+}
+
+func (p PID) Local() bool {
+	return p.NodeID() == 0
+}
+
+func (p PID) Remote() bool {
+	return p.NodeID() != 0
 }
 
 func (p PID) String() string {
@@ -96,7 +104,7 @@ func (p *PID) UnmarshalBinary(data []byte) error {
 	return err
 }
 
-func Compare(a, b PID) int {
+func ComparePID(a, b PID) int {
 	if a.raw < b.raw {
 		return -1
 	} else if a.raw > b.raw {

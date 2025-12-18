@@ -3,6 +3,7 @@ package game
 import (
 	"fmt"
 	"log/slog"
+	"math"
 	"math/rand"
 	"time"
 
@@ -26,7 +27,11 @@ func NewWorkAgent(name gotp.Atom, wanted uint64) *WorkAgent {
 
 func (w *WorkAgent) ChildSpec() supervisor.ChildSpec {
 	return agent.ChildSpec(
-		func() *state { return &state{wanted: w.wanted} },
+		func() *state {
+			s := state{wanted: w.wanted, next: true}
+			s.stepNextLog()
+			return &s
+		},
 		process.Named(w.name),
 	)
 }
@@ -44,8 +49,7 @@ func ContextGetWork[S process.Sendable](pctx process.Context, agnt S, from proce
 
 func ContextSubmitProcessedWork[S process.Sendable](pctx process.Context, agnt S, work *workItem) (*workItem, bool) {
 	s, ok := agent.ContextGetAndUpdate(pctx, agnt, func(state *state) state {
-		state.receivedProcessed(work)
-		if state.wanted > state.generated && state.generated%100 == 0 || state.wanted == state.generated && state.generated > state.processed && state.processed%100 == 0 {
+		if state.receivedProcessed(work) {
 			slog.WarnContext(pctx.Context(), "Submitted work", slog.Uint64("wanted", state.wanted), slog.Uint64("generated", state.generated), slog.Uint64("processed", state.processed))
 		}
 		if state.processed == state.wanted {
@@ -61,12 +65,15 @@ func ContextSubmitProcessedWork[S process.Sendable](pctx process.Context, agnt S
 }
 
 type state struct {
-	wanted, generated, processed uint64
-	next                         bool
-	workItem                     *workItem
+	wanted, generated, processed, nextLog uint64
+	next                                  bool
+	workItem                              *workItem
 }
 
 func (s *state) generate() {
+	if !s.next {
+		return
+	}
 	if s.generated >= s.wanted {
 		s.workItem = nil
 		s.next = false
@@ -80,11 +87,36 @@ func (s *state) generate() {
 	}
 }
 
-func (s *state) receivedProcessed(work *workItem) {
+func (s *state) receivedProcessed(work *workItem) (log bool) {
 	if work.need == work.done {
 		s.processed++
 		s.generate()
 	}
+	if s.processed >= s.nextLog {
+		s.stepNextLog()
+		return true
+	}
+	return false
+}
+
+func (s *state) stepNextLog() {
+	if s.wanted == 0 || s.processed >= s.wanted {
+		s.nextLog = s.wanted + 1
+		return
+	}
+	base := s.processed
+	pos := float64(s.processed) / float64(s.wanted)
+	if pos < 0 {
+		pos = 0
+	} else if pos > 1 {
+		pos = 1
+	}
+	maxI := float64(s.wanted) * 0.01
+	minI := 1.0
+	easeIn := math.Pow(pos, 4.0)
+	interval := maxI - (maxI-minI)*easeIn
+	step := uint64(math.Max(1, math.Round(interval)))
+	s.nextLog = base + step
 }
 
 type workItem struct {

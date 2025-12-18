@@ -40,10 +40,9 @@ func MailboxSize(size int) SpawnOpt {
 		if p.mailbox == nil {
 			p.mailbox = make([]gotp.Term, 0, size)
 		} else {
-			capacity := cap(p.mailbox)
-			if capacity < size {
+			if cap(p.mailbox) < size {
 				oldMailbox := p.mailbox
-				p.mailbox = make([]gotp.Term, 0, size)
+				p.mailbox = make([]gotp.Term, size)
 				copy(p.mailbox, oldMailbox)
 			}
 		}
