@@ -26,12 +26,13 @@ func (f Game) Start(st application.StartType) (supervisor.Supervisable, error) {
 	if st.IsNormal() {
 		// return treeOfTeams("quartermaster", "teams", [][]gotp.Atom{greekCapitalList[:1]}, namesList[:1]), nil
 		// return treeOfTeams("quartermaster", "teams", [][]gotp.Atom{greekCapitalList[:10]}, namesList[:10]), nil
-		// return treeOfTeams("quartermaster", "teams", [][]gotp.Atom{greekCapitalList}, namesList), nil
+		return treeOfTeams("quartermaster", "teams", [][]gotp.Atom{greekCapitalList}, namesList), nil
 		// return treeOfTeams("quartermaster", "teams", [][]gotp.Atom{greekCapitalList, greekCapitalList}, namesList), nil
 		// return treeOfTeams("quartermaster", "teams", [][]gotp.Atom{greekCapitalList, greekCapitalList, greekCapitalList}, namesList), nil
 		// return treeOfTeams("quartermaster", "teams", [][]gotp.Atom{greekCapitalList, greekCapitalList, greekCapitalList, greekCapitalList[:3]}, namesList), nil
-		return treeOfTeams("quartermaster", "teams", [][]gotp.Atom{greekCapitalList, greekCapitalList, greekCapitalList, greekCapitalList[:6]}, namesList), nil
+		// return treeOfTeams("quartermaster", "teams", [][]gotp.Atom{greekCapitalList, greekCapitalList, greekCapitalList, greekCapitalList[:6]}, namesList), nil
 		// return treeOfTeams("quartermaster", "teams", [][]gotp.Atom{greekCapitalList, greekCapitalList, greekCapitalList, greekCapitalList[:7]}, namesList), nil
+		// return treeOfTeams("quartermaster", "teams", [][]gotp.Atom{greekCapitalList, greekCapitalList, greekCapitalList, greekCapitalList[:8]}, namesList), nil
 	} else if _, ok := st.IsFailover(); ok {
 		return nil, errors.New("failover not supported in Game")
 	} else if _, ok := st.IsTakeover(); ok {

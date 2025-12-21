@@ -15,16 +15,16 @@ import (
 )
 
 const (
-	MIN_DURATION      = 1 * time.Second
-	MID_LOW_DURATION  = 2 * time.Second
-	MID_HIGH_DURATION = 3 * time.Second
-	MAX_DURATION      = 5 * time.Second
+	MIN_DURATION      = 2 * time.Second
+	MID_LOW_DURATION  = 3 * time.Second
+	MID_HIGH_DURATION = 5 * time.Second
+	MAX_DURATION      = 8 * time.Second
 
 	atom_GET_WORK gotp.Atom = "get_work"
 )
 
 var _ supervisor.Supervisable = &Crew{}
-var _ gen_server.GenServer[any, any, any, *workItem, any] = &Crew{}
+var _ gen_server.GenServer[any, gotp.Term, gotp.Term, *workItem, gotp.Term] = &Crew{}
 
 func buildCrew(workAgent gotp.Atom, team gotp.Atom, crewList []gotp.Atom) []supervisor.Supervisable {
 	var crew []supervisor.Supervisable
@@ -41,7 +41,7 @@ type Crew struct {
 
 	// Embed the gen_server.DefaultHandlers to provide default implementations
 	// for the gen_server.Serverable interface methods.
-	gen_server.OptionalCallbacks[any, any]
+	gen_server.OptionalCallbacks
 }
 
 func NewCrew(id gotp.Atom, agent gotp.Atom) *Crew {
@@ -63,62 +63,62 @@ func (f *Crew) ChildSpec() supervisor.ChildSpec {
 	}
 }
 
-func (f *Crew) Init(pctx process.Context, _ any) (c gen_server.Continue[any], err error) {
+func (f *Crew) Init(pctx process.Context, _ any) (c gen_server.Continue[gotp.Term], err error) {
 	// slog.DebugContext(pctx.Context(), "Crew.Init", slog.Any("agent", f.agent))
 	pctx.TrapExit(true)
-	return gen_server.Cont[any](atom_GET_WORK), nil
+	return gen_server.Cont[gotp.Term](atom_GET_WORK), nil
 }
 
-func (f *Crew) HandleContinue(pctx process.Context, msg any) (gen_server.Continue[any], error) {
+func (f *Crew) HandleContinue(pctx process.Context, msg gotp.Term) (gen_server.Continue[gotp.Term], error) {
 	switch m := msg.(type) {
 	case gotp.Atom:
 		switch m {
 		case atom_GET_WORK:
 			if f.work == nil {
-				if w, ok := ContextGetWork(pctx, f.agent, pctx.PID()); ok {
+				if w, ok := GetWork(f.agent, pctx.PID()); ok {
 					f.work = w
 					pctx.Send(gen_server.CastMsg(w))
-					return gen_server.NoCont[any](), nil
+					return gen_server.NoCont[gotp.Term](), nil
 				}
 
 				slog.DebugContext(pctx.Context(), "Crew.HandleContinue - no work available")
-				return gen_server.Stop[any](process.NORMAL), nil
+				return gen_server.Stop[gotp.Term](process.NORMAL), nil
 			}
 			work := f.work
 			f.work = nil
-			if work, ok := ContextSubmitProcessedWork(pctx, f.agent, work); ok {
+			if work, ok := SubmitProcessedWork(f.agent, pctx.PID(), work); ok {
 				f.work = work
 				pctx.Send(gen_server.CastMsg(work))
-				return gen_server.NoCont[any](), nil
+				return gen_server.NoCont[gotp.Term](), nil
 			}
-			return gen_server.Stop[any](process.NORMAL), nil
+			return gen_server.Stop[gotp.Term](process.NORMAL), nil
 		}
 	}
-	return gen_server.NoCont[any](), nil
+	return gen_server.NoCont[gotp.Term](), nil
 }
 
-func (f *Crew) HandleCast(pctx process.Context, work *workItem) (gen_server.Continue[any], error) {
+func (f *Crew) HandleCast(pctx process.Context, work *workItem) (gen_server.Continue[gotp.Term], error) {
 	if f.work.id == work.id && work.need != work.done {
 		work.done++
 		load := assessWork()
 		work.taken += load
 		pctx.SendAfter(gen_server.CastMsg(work), load)
-		return gen_server.NoCont[any](), nil
+		return gen_server.NoCont[gotp.Term](), nil
 	}
 
-	return gen_server.Cont[any](atom_GET_WORK), nil
+	return gen_server.Cont[gotp.Term](atom_GET_WORK), nil
 }
 
-func (f *Crew) HandleInfo(pctx process.Context, msg gotp.Term) (gen_server.Continue[any], error) {
+func (f *Crew) HandleInfo(pctx process.Context, msg gotp.Term) (gen_server.Continue[gotp.Term], error) {
 	switch m := msg.(type) {
 	case process.ExitMsg:
 		if m.PID == pctx.PID() {
-			return gen_server.Stop[any](m.Reason), nil
+			return gen_server.Stop[gotp.Term](m.Reason), nil
 		}
 	default:
-		return gen_server.NoCont[any](), fmt.Errorf("unexpected message: %T", m)
+		return gen_server.NoCont[gotp.Term](), fmt.Errorf("unexpected message: %T", m)
 	}
-	return gen_server.NoCont[any](), nil
+	return gen_server.NoCont[gotp.Term](), nil
 }
 
 func (f *Crew) Terminate(pctx process.Context, reason error) error {

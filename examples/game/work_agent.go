@@ -33,31 +33,32 @@ func (w *WorkAgent) ChildSpec() supervisor.ChildSpec {
 			return &s
 		},
 		process.Named(w.name),
+		process.ChannelSize(256),
 	)
 }
 
-func ContextGetWork[S process.Sendable](pctx process.Context, agnt S, from process.PID) (*workItem, bool) {
-	s, ok := agent.ContextGetAndUpdate(pctx, agnt, func(state *state) state {
+func GetWork[S process.Sendable](agnt S, from process.PID) (*workItem, bool) {
+	s, ok := agent.GetAndUpdate(agnt, from, func(state *state) state {
 		state.generate()
 		return *state
-	}, 5*time.Second)
+	}, 0) // indefinite timeout, this is an example that often runs at maximum capacity on systems to ensure "the system always moves forward"
 	if !ok || !s.next {
 		return nil, false
 	}
 	return s.workItem, s.next
 }
 
-func ContextSubmitProcessedWork[S process.Sendable](pctx process.Context, agnt S, work *workItem) (*workItem, bool) {
-	s, ok := agent.ContextGetAndUpdate(pctx, agnt, func(state *state) state {
+func SubmitProcessedWork[S process.Sendable](agnt S, from process.PID, work *workItem) (*workItem, bool) {
+	s, ok := agent.GetAndUpdate(agnt, from, func(state *state) state {
 		if state.receivedProcessed(work) {
-			slog.WarnContext(pctx.Context(), "Submitted work", slog.Uint64("wanted", state.wanted), slog.Uint64("generated", state.generated), slog.Uint64("processed", state.processed))
+			slog.Warn("Submitted work", slog.Uint64("wanted", state.wanted), slog.Uint64("generated", state.generated), slog.Uint64("processed", state.processed), "from", from)
 		}
 		if state.processed == state.wanted {
-			slog.InfoContext(pctx.Context(), "All work processed", slog.Uint64("wanted", state.wanted), slog.Uint64("generated", state.generated), slog.Uint64("processed", state.processed))
-			agent.ContextStop(pctx, agnt, process.NORMAL)
+			slog.Info("All work processed", slog.Uint64("wanted", state.wanted), slog.Uint64("generated", state.generated), slog.Uint64("processed", state.processed), "from", from)
+			agent.Stop(agnt, process.NORMAL)
 		}
 		return *state
-	}, 5*time.Second)
+	}, 0) // indefinite timeout, this is an example that often runs at maximum capacity on systems to ensure "the system always moves forward"
 	if !ok || !s.next {
 		return nil, false
 	}

@@ -1,8 +1,6 @@
 package game
 
 import (
-	"log/slog"
-
 	"github.com/Morgahl/gotp"
 	"github.com/Morgahl/gotp/process"
 	"github.com/Morgahl/gotp/supervisor"
@@ -76,12 +74,13 @@ func (f *Team) ChildSpec() supervisor.ChildSpec {
 		Type:        supervisor.SUPERVISOR,
 		Significant: true,
 		Start: func(opts ...process.SpawnOpt) (process.Ref, error) {
-			return static.Start(f, nil, append([]process.SpawnOpt{process.Named(f.id)}, opts...)...)
+			opts = append([]process.SpawnOpt{process.Named(f.id)}, opts...)
+			return static.Start(f, nil, opts...)
 		},
 	}
 }
 
 func (f *Team) Init(pctx process.Context, opts gotp.Options) (supervisor.Options, []supervisor.Supervisable, error) {
-	slog.InfoContext(pctx.Context(), "Team.Init", "members", len(f.specs), "opts", opts)
+	// slog.InfoContext(pctx.Context(), "Team.Init", "members", len(f.specs), "opts", opts)
 	return f.flags, f.specs, nil
 }

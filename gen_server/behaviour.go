@@ -33,34 +33,29 @@ const (
 // all methods of the Serverable interface, making it easier to create simple servers without boilerplate code.
 // It is recommended to use this only for simple servers or during development. For production servers, it is
 // recommended to implement all methods of the Serverable interface.
-//
-// NOTE: This expects two generic type parameters that the implementor must provide the correct type for it. This is to
-// ensure that the server correctly matches the Serverable interface:
-// - I which is the arg passed to Init when it is called
-// - Ct which is the type of the continue message
-type OptionalCallbacks[I any, Ct gotp.Term] struct{}
+type OptionalCallbacks struct{}
 
-func (OptionalCallbacks[I, Ct]) HandleCall(pctx process.Context, msg any, from process.PID) (Response[any], Continue[Ct], error) {
+func (OptionalCallbacks) HandleCall(pctx process.Context, msg gotp.Term, from process.PID) (Response[gotp.Term], Continue[gotp.Term], error) {
 	slog.WarnContext(pctx.Context(), "HandleCall not implemented, msg will be ignored", slog.String("msg", fmt.Sprintf("%+v", msg)), slog.String("from", from.String()))
-	return NoReply[any](), NoCont[Ct](), nil
+	return NoReply[gotp.Term](), NoCont[gotp.Term](), nil
 }
 
-func (OptionalCallbacks[I, Ct]) HandleCast(pctx process.Context, msg any) (Continue[Ct], error) {
+func (OptionalCallbacks) HandleCast(pctx process.Context, msg gotp.Term) (Continue[gotp.Term], error) {
 	slog.WarnContext(pctx.Context(), "HandleCast not implemented, msg will be ignored", slog.String("msg", fmt.Sprintf("%+v", msg)))
-	return NoCont[Ct](), nil
+	return NoCont[gotp.Term](), nil
 }
 
-func (OptionalCallbacks[I, Ct]) HandleContinue(pctx process.Context, msg Ct) (Continue[Ct], error) {
+func (OptionalCallbacks) HandleContinue(pctx process.Context, msg gotp.Term) (Continue[gotp.Term], error) {
 	slog.WarnContext(pctx.Context(), "HandleContinue not implemented, msg will be ignored", slog.String("msg", fmt.Sprintf("%+v", msg)))
-	return NoCont[Ct](), nil
+	return NoCont[gotp.Term](), nil
 }
 
-func (OptionalCallbacks[I, Ct]) HandleInfo(pctx process.Context, msg gotp.Term) (Continue[Ct], error) {
+func (OptionalCallbacks) HandleInfo(pctx process.Context, msg gotp.Term) (Continue[gotp.Term], error) {
 	slog.WarnContext(pctx.Context(), "HandleInfo not implemented, msg will be ignored", slog.String("msg", fmt.Sprintf("%+v", msg)))
-	return NoCont[Ct](), nil
+	return NoCont[gotp.Term](), nil
 }
 
-func (OptionalCallbacks[I, Ct]) Terminate(pctx process.Context, reason error) error {
+func (OptionalCallbacks) Terminate(pctx process.Context, reason error) error {
 	slog.WarnContext(pctx.Context(), "Terminate not implemented, server will be stopped", slog.Any("reason", reason))
 	return reason
 }

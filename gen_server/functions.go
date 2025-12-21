@@ -53,28 +53,6 @@ func Call[Cl gotp.Term, R gotp.Term, S process.Sendable](to S, from process.PID,
 	}
 }
 
-func ContextCall[Cl gotp.Term, R gotp.Term, S process.Sendable](to S, from process.Context, msg Cl, timeout time.Duration) (resp R, replied bool) {
-	if timeout < 0 {
-		timeout = DEFAULT_TIMEOUT
-	}
-	var after <-chan time.Time
-	if timeout > 0 {
-		after = time.After(timeout)
-	}
-	call := CallMsg[Cl, R](from.PID(), msg)
-	process.ContextSend(from, to, call)
-	select {
-	case resp, ok := <-call.resp:
-		return resp, ok
-	case <-after:
-		return resp, false
-	}
-}
-
 func Cast[Cl gotp.Term, S process.Sendable](to S, msg Cl) {
 	process.Send(to, CastMsg(msg))
-}
-
-func ContextCast[Cl gotp.Term, S process.Sendable](to S, pctx process.Context, msg Cl) {
-	process.ContextSend(pctx, to, CastMsg(msg))
 }

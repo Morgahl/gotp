@@ -17,13 +17,12 @@ type Startable interface {
 type RunFn func(Context) error
 
 type process struct {
-	pid             PID
-	name            gotp.Atom
-	flags           ProcessFlags
-	state           processState
-	exitReason      error
-	deregPidHandle  func()
-	deregNameHandle func()
+	pid         PID
+	name        gotp.Atom
+	flags       ProcessFlags
+	state       processState
+	exitReason  error
+	deregHandle func()
 
 	// context management structures
 	context       context.Context
@@ -62,45 +61,39 @@ func build(pid PID, opts []SpawnOpt) *process {
 	return p
 }
 
-func Spawn(fn RunFn, opts ...SpawnOpt) Ref {
-	// p := build(nextPID(), opts)
-	// ref := newRef(p)
-	// p.deregPidHandle = registerPID(ref)
-	// if p.name != "" {
-	// 	p.deregNameHandle = registerNamed(p.name, ref)
-	// }
-	// p.state = STARTED_STATE
-	// go p.run(fn)
+func Spawn(fn RunFn, opts ...SpawnOpt) (Ref, error) {
+	p := build(nextPID(), opts)
+	ref := newRef(p)
 
-	return registry.spawn(fn, opts)
-	// // pid := nextPID()
+	if err := pidTree.Store(p.pid.raw, ref); err != nil {
+		return Ref{}, err
+	}
 
-	// p := build(nextPID(), opts)
-	// // capture pid and name here so that p (*process) is not captured in the deregHandle closure
-	// pid := p.pid
-	// pName := p.name
+	if p.name != "" {
+		if err := nameTree.Store(string(p.name), ref); err != nil {
+			pidTree.Delete(p.pid.raw)
+			return Ref{}, err
+		}
+	}
 
-	// ref := newRef(p)
-	// pidTree.Store(pid.raw, ref)
-	// if pName != "" {
-	// 	nameTree.Store(string(pName), ref)
-	// }
-	// p.deregHandle = func() {
-	// 	pidTree.Delete(pid.raw)
-	// 	if pName != "" {
-	// 		nameTree.Delete(string(pName))
-	// 	}
-	// }
-	// p.state = STARTED_STATE
-	// go p.run(fn)
-	// return ref
+	p.deregHandle = func() {
+		pidTree.Delete(p.pid.raw)
+		if p.name != "" {
+			nameTree.Delete(string(p.name))
+		}
+	}
+
+	p.state = STARTED_STATE
+	go p.run(fn)
+
+	return ref, nil
 }
 
-func SpawnLink(fn RunFn, linked Ref, opts ...SpawnOpt) Ref {
+func SpawnLink(fn RunFn, linked Ref, opts ...SpawnOpt) (Ref, error) {
 	return Spawn(fn, append([]SpawnOpt{Link(linked)}, opts...)...)
 }
 
-func SpawnMonitor(fn RunFn, monitor Ref, opts ...SpawnOpt) Ref {
+func SpawnMonitor(fn RunFn, monitor Ref, opts ...SpawnOpt) (Ref, error) {
 	return Spawn(fn, append([]SpawnOpt{Monitored(monitor)}, opts...)...)
 }
 
@@ -109,13 +102,9 @@ func (p *process) run(runFn RunFn) {
 	defer func() {
 		p.exitReason = dbg.Recover(recover(), "process.run", p.exitReason)
 		p.contextCancel(p.exitReason)
-		if p.deregNameHandle != nil {
-			p.deregNameHandle()
-			p.deregNameHandle = nil
-		}
-		if p.deregPidHandle != nil {
-			p.deregPidHandle()
-			p.deregPidHandle = nil
+		if p.deregHandle != nil {
+			p.deregHandle()
+			p.deregHandle = nil
 		}
 		for ref := range p.monitors.refs() {
 			ref.send(downSignal(p.pid, ref, p.exitReason))

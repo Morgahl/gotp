@@ -10,16 +10,12 @@ import (
 type Context struct {
 	process *process
 	ref     Ref
-	// pidMap  map[PID]Ref
-	// nameMap map[gotp.Atom]Ref
 }
 
 func newContext(process *process) Context {
 	return Context{
 		process: process,
 		ref:     newRef(process),
-		// pidMap:  make(map[PID]Ref),
-		// nameMap: make(map[gotp.Atom]Ref),
 	}
 }
 
@@ -87,36 +83,4 @@ func (c *Context) ProcessPending() {
 
 func (c *Context) Exit(reason error) {
 	c.process.send(exitSignal(no_FLAGS, c.process.pid, newRef(c.process), reason))
-}
-
-func ContextSend[S Sendable](pctx Context, to S, m gotp.Term) {
-	defer func() { recover() }()
-	switch v := any(to).(type) {
-	case Ref:
-		v.send(messageSignal(no_FLAGS, m))
-
-	case PID:
-		// if ref, found := pctx.pidMap[v]; found {
-		// 	if ref.IsValid() {
-		// 		ref.send(messageSignal(no_FLAGS, m))
-		// 		return
-		// 	}
-		// 	delete(pctx.pidMap, v)
-		// }
-		pidRef(v).send(messageSignal(no_FLAGS, m))
-
-	case gotp.Atom:
-		// if ref, found := pctx.nameMap[v]; found {
-		// 	if ref.IsValid() {
-		// 		ref.send(messageSignal(no_FLAGS, m))
-		// 		return
-		// 	}
-		// 	delete(pctx.nameMap, v)
-		// }
-		namedRef(v).send(messageSignal(no_FLAGS, m))
-	}
-}
-
-func ContextSendAfter[S Sendable](pctx Context, s S, m gotp.Term, delay time.Duration) *time.Timer {
-	return time.AfterFunc(delay, func() { ContextSend(pctx, s, m) })
 }

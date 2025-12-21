@@ -18,14 +18,24 @@ type server[
 
 func (s *server[I, Cl, R, Cs, Ct]) setupProc(initArg I, opts ...process.SpawnOpt) (process.Ref, <-chan error) {
 	sig := make(chan error)
-	pid := process.Spawn(s.loop(initArg, sig), opts...)
-	return pid, sig
+	ref, err := process.Spawn(s.loop(initArg, sig), opts...)
+	if err != nil {
+		sig <- err
+		close(sig)
+		return process.Ref{}, sig
+	}
+	return ref, sig
 }
 
 func (s *server[I, Cl, R, Cs, Ct]) setupLinkedProc(initArg I, linked process.Ref, opts ...process.SpawnOpt) (process.Ref, <-chan error) {
 	sig := make(chan error)
-	pid := process.SpawnLink(s.loop(initArg, sig), linked, opts...)
-	return pid, sig
+	ref, err := process.SpawnLink(s.loop(initArg, sig), linked, opts...)
+	if err != nil {
+		sig <- err
+		close(sig)
+		return process.Ref{}, sig
+	}
+	return ref, sig
 }
 
 func (s *server[I, Cl, R, Cs, Ct]) loop(initArg I, sig chan error) process.RunFn {
@@ -80,7 +90,7 @@ func (s *server[I, Cl, R, Cs, Ct]) loop(initArg I, sig chan error) process.RunFn
 				// response back to the caller.
 				resp, cont, reason = s.serverable.HandleCall(pctx, msg.req, msg.from)
 				if reason == nil {
-					switch resp.atom {
+					switch resp._type {
 					case NO_REPLY:
 						// We have been asked to not send a response back to the caller so just close
 						// the resp chan.

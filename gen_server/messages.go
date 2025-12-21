@@ -16,20 +16,20 @@ const (
 )
 
 type Response[R any] struct {
-	atom respEnum
-	resp R
+	_type respEnum
+	resp  R
 }
 
 func NoReply[R any]() Response[R] {
-	return Response[R]{atom: NO_REPLY}
+	return Response[R]{_type: NO_REPLY}
 }
 
 func Reply[R any](resp R) Response[R] {
-	return Response[R]{atom: REPLY, resp: resp}
+	return Response[R]{_type: REPLY, resp: resp}
 }
 
 func (r Response[R]) IsReply() (R, bool) {
-	if r.atom == REPLY {
+	if r._type == REPLY {
 		return r.resp, true
 	}
 	var zero R
@@ -37,7 +37,7 @@ func (r Response[R]) IsReply() (R, bool) {
 }
 
 func (r Response[R]) IsNoReply() bool {
-	return r.atom == NO_REPLY
+	return r._type == NO_REPLY
 }
 
 type contAtom uint8

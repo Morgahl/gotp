@@ -120,3 +120,23 @@ func Exit[S Sendable](to S, reason error) {
 		sendNamed(v, exitSignal(no_FLAGS, PIDZero(), Ref{}, reason))
 	}
 }
+
+const ErrBadArg gotp.Atom = "badarg"
+
+func Register(name gotp.Atom, ref Ref) error {
+	if name == "undefined" {
+		// TODO: maybe better error here?
+		return ErrBadArg
+	} else if !ref.IsValid() {
+		// TODO: maybe better error here?
+		return ErrBadArg
+	} else if err := nameTree.Store(name.String(), ref); err != nil {
+		// TODO: maybe better error here?
+		return ErrBadArg
+	}
+	return nil
+}
+
+func WhereIs(name gotp.Atom) Ref {
+	return namedRef(name)
+}
