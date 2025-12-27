@@ -12,6 +12,7 @@ import (
 	"github.com/Morgahl/gotp/internal/ctx"
 	"github.com/Morgahl/gotp/process"
 	"github.com/Morgahl/gotp/supervisor"
+	"github.com/Morgahl/gotp/term"
 )
 
 const (
@@ -24,7 +25,7 @@ const (
 )
 
 var _ supervisor.Supervisable = &Crew{}
-var _ gen_server.GenServer[any, gotp.Term, gotp.Term, *workItem, gotp.Term] = &Crew{}
+var _ gen_server.GenServer[any, term.Term, term.Term, *workItem, term.Term] = &Crew{}
 
 func buildCrew(workAgent gotp.Atom, team gotp.Atom, crewList []gotp.Atom) []supervisor.Supervisable {
 	var crew []supervisor.Supervisable
@@ -63,13 +64,13 @@ func (f *Crew) ChildSpec() supervisor.ChildSpec {
 	}
 }
 
-func (f *Crew) Init(pctx process.Context, _ any) (c gen_server.Continue[gotp.Term], err error) {
+func (f *Crew) Init(pctx process.Context, _ any) (c gen_server.Continue[term.Term], err error) {
 	// slog.DebugContext(pctx.Context(), "Crew.Init", slog.Any("agent", f.agent))
 	pctx.TrapExit(true)
-	return gen_server.Cont[gotp.Term](atom_GET_WORK), nil
+	return gen_server.Cont[term.Term](atom_GET_WORK), nil
 }
 
-func (f *Crew) HandleContinue(pctx process.Context, msg gotp.Term) (gen_server.Continue[gotp.Term], error) {
+func (f *Crew) HandleContinue(pctx process.Context, msg term.Term) (gen_server.Continue[term.Term], error) {
 	switch m := msg.(type) {
 	case gotp.Atom:
 		switch m {
@@ -78,47 +79,47 @@ func (f *Crew) HandleContinue(pctx process.Context, msg gotp.Term) (gen_server.C
 				if w, ok := GetWork(f.agent, pctx.PID()); ok {
 					f.work = w
 					pctx.Send(gen_server.CastMsg(w))
-					return gen_server.NoCont[gotp.Term](), nil
+					return gen_server.NoCont[term.Term](), nil
 				}
 
 				slog.DebugContext(pctx.Context(), "Crew.HandleContinue - no work available")
-				return gen_server.Stop[gotp.Term](process.NORMAL), nil
+				return gen_server.Stop[term.Term](process.NORMAL), nil
 			}
 			work := f.work
 			f.work = nil
 			if work, ok := SubmitProcessedWork(f.agent, pctx.PID(), work); ok {
 				f.work = work
 				pctx.Send(gen_server.CastMsg(work))
-				return gen_server.NoCont[gotp.Term](), nil
+				return gen_server.NoCont[term.Term](), nil
 			}
-			return gen_server.Stop[gotp.Term](process.NORMAL), nil
+			return gen_server.Stop[term.Term](process.NORMAL), nil
 		}
 	}
-	return gen_server.NoCont[gotp.Term](), nil
+	return gen_server.NoCont[term.Term](), nil
 }
 
-func (f *Crew) HandleCast(pctx process.Context, work *workItem) (gen_server.Continue[gotp.Term], error) {
+func (f *Crew) HandleCast(pctx process.Context, work *workItem) (gen_server.Continue[term.Term], error) {
 	if f.work.id == work.id && work.need != work.done {
 		work.done++
 		load := assessWork()
 		work.taken += load
 		pctx.SendAfter(gen_server.CastMsg(work), load)
-		return gen_server.NoCont[gotp.Term](), nil
+		return gen_server.NoCont[term.Term](), nil
 	}
 
-	return gen_server.Cont[gotp.Term](atom_GET_WORK), nil
+	return gen_server.Cont[term.Term](atom_GET_WORK), nil
 }
 
-func (f *Crew) HandleInfo(pctx process.Context, msg gotp.Term) (gen_server.Continue[gotp.Term], error) {
+func (f *Crew) HandleInfo(pctx process.Context, msg term.Term) (gen_server.Continue[term.Term], error) {
 	switch m := msg.(type) {
 	case process.ExitMsg:
 		if m.PID == pctx.PID() {
-			return gen_server.Stop[gotp.Term](m.Reason), nil
+			return gen_server.Stop[term.Term](m.Reason), nil
 		}
 	default:
-		return gen_server.NoCont[gotp.Term](), fmt.Errorf("unexpected message: %T", m)
+		return gen_server.NoCont[term.Term](), fmt.Errorf("unexpected message: %T", m)
 	}
-	return gen_server.NoCont[gotp.Term](), nil
+	return gen_server.NoCont[term.Term](), nil
 }
 
 func (f *Crew) Terminate(pctx process.Context, reason error) error {

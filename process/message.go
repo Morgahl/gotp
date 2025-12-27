@@ -1,18 +1,18 @@
 package process
 
-import "github.com/Morgahl/gotp"
+import "github.com/Morgahl/gotp/term"
 
 type From interface {
 	PID | Ref
 }
 
-type RequestMsg[M gotp.Term] struct {
+type RequestMsg[M term.Term] struct {
 	From    PID
 	Ref     Ref
 	Message M
 }
 
-func RequestFrom[F From, M gotp.Term](from F, msg M) RequestMsg[M] {
+func RequestFrom[F From, M term.Term](from F, msg M) RequestMsg[M] {
 	var req RequestMsg[M]
 	switch f := any(from).(type) {
 	case PID:
@@ -23,13 +23,13 @@ func RequestFrom[F From, M gotp.Term](from F, msg M) RequestMsg[M] {
 	return req
 }
 
-type ReplyMsg[M gotp.Term] struct {
+type ReplyMsg[M term.Term] struct {
 	From    PID
 	Ref     Ref
 	Message M
 }
 
-func ReplyTo[F From, M gotp.Term](request RequestMsg[gotp.Term], from F, msg M) ReplyMsg[M] {
+func ReplyTo[F From, M term.Term](request RequestMsg[term.Term], from F, msg M) ReplyMsg[M] {
 	var rep ReplyMsg[M]
 	switch f := any(from).(type) {
 	case PID:

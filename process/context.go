@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/Morgahl/gotp"
+	"github.com/Morgahl/gotp/term"
 )
 
 type Context struct {
@@ -55,11 +56,11 @@ func (c *Context) UpdateFlags(fn func(ProcessFlags) ProcessFlags) {
 	c.process.flags = fn(c.process.flags)
 }
 
-func (c *Context) Send(msg gotp.Term) {
+func (c *Context) Send(msg term.Term) {
 	c.process.send(messageSignal(no_FLAGS, msg))
 }
 
-func (c *Context) SendAfter(msg gotp.Term, delay time.Duration) *time.Timer {
+func (c *Context) SendAfter(msg term.Term, delay time.Duration) *time.Timer {
 	return time.AfterFunc(delay, func() { c.process.send(messageSignal(no_FLAGS, msg)) })
 }
 

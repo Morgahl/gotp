@@ -7,6 +7,7 @@ import (
 	"github.com/Morgahl/gotp/gen_server"
 	"github.com/Morgahl/gotp/process"
 	"github.com/Morgahl/gotp/supervisor"
+	"github.com/Morgahl/gotp/term"
 )
 
 func Start[T any](initFn InitFn[T], opts ...process.SpawnOpt) (process.Ref, error) {
@@ -18,18 +19,18 @@ func StartLink[T any](initFn InitFn[T], linked process.Ref, opts ...process.Spaw
 }
 
 func Cast[T any, S process.Sendable](to S, msg UpdateFn[T]) {
-	gen_server.Cast[gotp.Term](to, msg)
+	gen_server.Cast[term.Term](to, msg)
 }
 func Get[T any, S process.Sendable](to S, from process.PID, msg GetFn[T], timeout time.Duration) (T, bool) {
-	return gen_server.Call[gotp.Term, T](to, from, msg, timeout)
+	return gen_server.Call[term.Term, T](to, from, msg, timeout)
 }
 
 func GetAndUpdate[T any, S process.Sendable](to S, from process.PID, msg GetAndUpdateFn[T], timeout time.Duration) (T, bool) {
-	return gen_server.Call[gotp.Term, T](to, from, msg, timeout)
+	return gen_server.Call[term.Term, T](to, from, msg, timeout)
 }
 
 func Update[T any, S process.Sendable](to S, msg UpdateFn[T]) {
-	gen_server.Cast[gotp.Term](to, msg)
+	gen_server.Cast[term.Term](to, msg)
 }
 
 func Stop[S process.Sendable](to S, reason error) {

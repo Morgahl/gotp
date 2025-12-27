@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/Morgahl/gotp"
 	"github.com/Morgahl/gotp/process"
+	"github.com/Morgahl/gotp/term"
 )
 
 type respEnum uint8
@@ -65,13 +65,13 @@ func Stop[C any](reason C) Continue[C] {
 	return Continue[C]{atom: STOP, arg: reason}
 }
 
-type call[M gotp.Term, R gotp.Term] struct {
+type call[M term.Term, R term.Term] struct {
 	from process.PID
 	req  M
 	resp chan R
 }
 
-func CallMsg[M gotp.Term, R gotp.Term](from process.PID, req M) call[M, R] {
+func CallMsg[M term.Term, R term.Term](from process.PID, req M) call[M, R] {
 	return call[M, R]{from: from, req: req, resp: make(chan R, 1)}
 }
 
@@ -83,11 +83,11 @@ func (c call[M, R]) LogValue() slog.Value {
 	return slog.StringValue(c.String())
 }
 
-type cast[M gotp.Term] struct {
+type cast[M term.Term] struct {
 	req M
 }
 
-func CastMsg[M gotp.Term](req M) cast[M] {
+func CastMsg[M term.Term](req M) cast[M] {
 	return cast[M]{req: req}
 }
 

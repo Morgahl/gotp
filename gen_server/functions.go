@@ -3,8 +3,8 @@ package gen_server
 import (
 	"time"
 
-	"github.com/Morgahl/gotp"
 	"github.com/Morgahl/gotp/process"
+	"github.com/Morgahl/gotp/term"
 )
 
 const (
@@ -13,10 +13,10 @@ const (
 
 func Start[
 	I any,
-	Cl gotp.Term,
-	R gotp.Term,
-	Cs gotp.Term,
-	Ct gotp.Term,
+	Cl term.Term,
+	R term.Term,
+	Cs term.Term,
+	Ct term.Term,
 ](serverable GenServer[I, Cl, R, Cs, Ct], initArg I, opts ...process.SpawnOpt) (process.Ref, error) {
 	s := server[I, Cl, R, Cs, Ct]{serverable: serverable}
 	pid, errCh := s.setupProc(initArg, opts...)
@@ -25,17 +25,17 @@ func Start[
 
 func StartLink[
 	I any,
-	Cl gotp.Term,
-	R gotp.Term,
-	Cs gotp.Term,
-	Ct gotp.Term,
+	Cl term.Term,
+	R term.Term,
+	Cs term.Term,
+	Ct term.Term,
 ](serverable GenServer[I, Cl, R, Cs, Ct], initArg I, linked process.Ref, opts ...process.SpawnOpt) (process.Ref, error) {
 	s := server[I, Cl, R, Cs, Ct]{serverable: serverable}
 	pid, errCh := s.setupLinkedProc(initArg, linked, opts...)
 	return pid, <-errCh
 }
 
-func Call[Cl gotp.Term, R gotp.Term, S process.Sendable](to S, from process.PID, msg Cl, timeout time.Duration) (resp R, replied bool) {
+func Call[Cl term.Term, R term.Term, S process.Sendable](to S, from process.PID, msg Cl, timeout time.Duration) (resp R, replied bool) {
 	if timeout < 0 {
 		timeout = DEFAULT_TIMEOUT
 	}
@@ -53,6 +53,6 @@ func Call[Cl gotp.Term, R gotp.Term, S process.Sendable](to S, from process.PID,
 	}
 }
 
-func Cast[Cl gotp.Term, S process.Sendable](to S, msg Cl) {
+func Cast[Cl term.Term, S process.Sendable](to S, msg Cl) {
 	process.Send(to, CastMsg(msg))
 }

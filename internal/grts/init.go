@@ -14,6 +14,8 @@ import (
 	"github.com/Morgahl/gotp/internal/ctx"
 	"github.com/Morgahl/gotp/process"
 	"github.com/Morgahl/gotp/supervisor"
+	"github.com/Morgahl/gotp/term"
+	"github.com/Morgahl/gotp/tuple"
 )
 
 var (
@@ -46,26 +48,18 @@ func Boot(flags Flags, apps ...application.Application) (err error) {
 	return err
 }
 
-func Stop(reason error) {
+func Stop(reason gotp.Atom) {
 	assert.NotNil(init_ref, "grts.Stop: not booted")
 	if initRef := process.WhereIs("init"); initRef.IsValid() {
 		process.Send(initRef, stopMsg{reason})
 	}
 }
 
-type appStarted struct {
-	name gotp.Atom
-	ref  process.Ref
-}
+type appStarted tuple.T2[gotp.Atom, process.Ref]
 
-type message[T gotp.Term] struct {
-	from process.PID
-	msg  T
-}
+type message[T term.Term] tuple.T2[process.PID, T]
 
-type stopMsg struct {
-	reason error
-}
+type stopMsg tuple.T1[error]
 
 func __init(rootCtx ctx.Cancellable, flags Flags, apps []application.Application, exitCh chan<- error) process.RunFn {
 	var bootRef process.Ref
@@ -85,7 +79,7 @@ func __init(rootCtx ctx.Cancellable, flags Flags, apps []application.Application
 			return reason
 		}
 
-		var msg gotp.Term
+		var msg term.Term
 		var ok bool
 
 		// boot loop; starting applications
@@ -101,7 +95,7 @@ func __init(rootCtx ctx.Cancellable, flags Flags, apps []application.Application
 				}
 			}
 
-			if msg, ok, reason = process.ReceiveContext[gotp.Term](pctx, rootCtx); reason != nil {
+			if msg, ok, reason = process.ReceiveContext[term.Term](pctx, rootCtx); reason != nil {
 				if cause := context.Cause(rootCtx); errors.Is(reason, cause) {
 					slog.DebugContext(pctx.Context(), "init.receive: received shutdown signal", slog.Any("reason", reason))
 					reason = cause
@@ -111,59 +105,59 @@ func __init(rootCtx ctx.Cancellable, flags Flags, apps []application.Application
 			} else if !ok {
 				dbg.Throw("init.receive: channel closed")
 			}
-			switch m := msg.(type) {
+			switch msg := msg.(type) {
 
 			case appStarted:
-				if _, exists := kernel[m.name]; exists {
-					dbg.Throw("application started twice: %s", m.name)
+				if _, exists := kernel[msg.E0]; exists {
+					dbg.Throw("application started twice: %s", msg.E0)
 				}
-				kernel[m.name] = m.ref
-				pidToName[m.ref.PID()] = m.name
+				kernel[msg.E0] = msg.E1
+				pidToName[msg.E1.PID()] = msg.E0
 
 			case process.ExitMsg:
-				switch m.PID {
+				switch msg.PID {
 
 				case bootRef.PID():
-					if errors.Is(m.Reason, process.NORMAL) {
+					if errors.Is(msg.Reason, process.NORMAL) {
 						// boot process exited normally
 						status = STARTED
 						bootRef = process.Ref{}
 						break BOOT_LOOP
 					}
-					dbg.Throw("runtime terminated during boot: %v", m.Reason)
+					dbg.Throw("runtime terminated during boot: %v", msg.Reason)
 
 				default:
-					if appName, exists := pidToName[m.PID]; exists {
-						delete(pidToName, m.PID)
+					if appName, exists := pidToName[msg.PID]; exists {
+						delete(pidToName, msg.PID)
 						delete(kernel, appName)
-						return m.Reason
+						return msg.Reason
 					}
 					// ignore exits from unknown pids
 				}
 
 			case stopMsg:
-				reason = m.reason
+				reason = msg.E0
 				goto STOP_LOOP
 
 			case message[gotp.Atom]:
-				switch m.msg {
+				switch msg.E1 {
 				case "get_applications":
 					kApps := make([]application.Application, len(apps))
 					copy(kApps, apps)
-					process.Send(m.from, kApps)
+					process.Send(msg.E0, kApps)
 				case "get_status":
-					process.Send(m.from, status)
+					process.Send(msg.E0, status)
 				}
 
 			default:
-				dbg.Throw("unexpected message during boot: %T", m)
+				dbg.Throw("unexpected message during boot: %T", msg)
 			}
 		}
 
 		// main loop; running applications
 	MAIN_LOOP:
 		for {
-			if msg, ok, reason = process.ReceiveContext[gotp.Term](pctx, rootCtx); reason != nil {
+			if msg, ok, reason = process.ReceiveContext[term.Term](pctx, rootCtx); reason != nil {
 				if cause := context.Cause(rootCtx); errors.Is(reason, cause) {
 					slog.DebugContext(pctx.Context(), "init.receive: received shutdown signal", slog.Any("reason", reason))
 					reason = cause
@@ -173,40 +167,40 @@ func __init(rootCtx ctx.Cancellable, flags Flags, apps []application.Application
 			} else if !ok {
 				dbg.Throw("init.receive: channel closed")
 			}
-			switch m := msg.(type) {
+			switch msg := msg.(type) {
 
 			case appStarted:
-				if _, exists := kernel[m.name]; exists {
-					dbg.Throw("application started twice: %s", m.name)
+				if _, exists := kernel[msg.E0]; exists {
+					dbg.Throw("application started twice: %s", msg.E0)
 				}
-				kernel[m.name] = m.ref
-				pidToName[m.ref.PID()] = m.name
+				kernel[msg.E0] = msg.E1
+				pidToName[msg.E1.PID()] = msg.E0
 
 			case process.ExitMsg:
-				if appName, exists := pidToName[m.PID]; exists {
-					delete(pidToName, m.PID)
+				if appName, exists := pidToName[msg.PID]; exists {
+					delete(pidToName, msg.PID)
 					delete(kernel, appName)
-					return m.Reason
+					return msg.Reason
 				}
 				// ignore exits from unknown pids
 
 			case stopMsg:
-				reason = m.reason
+				reason = msg.E0
 				status = STOPPING
 				break MAIN_LOOP
 
 			case message[gotp.Atom]:
-				switch m.msg {
+				switch msg.E1 {
 				case "get_applications":
 					kApps := make([]application.Application, len(apps))
 					copy(kApps, apps)
-					process.Send(m.from, kApps)
+					process.Send(msg.E0, kApps)
 				case "get_status":
-					process.Send(m.from, status)
+					process.Send(msg.E0, status)
 				}
 
 			default:
-				dbg.Throw("unexpected message during boot: %T", m)
+				dbg.Throw("unexpected message during boot: %T", msg)
 			}
 		}
 
@@ -234,7 +228,7 @@ func __init(rootCtx ctx.Cancellable, flags Flags, apps []application.Application
 			}
 		INNER:
 			for {
-				msg, ok, err := process.ReceiveWithTimeout[gotp.Term](pctx, 0)
+				msg, ok, err := process.ReceiveWithTimeout[term.Term](pctx, 0)
 				if err != nil {
 					slog.ErrorContext(pctx.Context(), "grts.__init: error receiving ExitMsg during shutdown", slog.Any("error", err))
 					break
@@ -245,11 +239,11 @@ func __init(rootCtx ctx.Cancellable, flags Flags, apps []application.Application
 				switch msg := msg.(type) {
 
 				case appStarted:
-					if _, exists := kernel[msg.name]; exists {
-						dbg.Throw("application started twice: %s", msg.name)
+					if _, exists := kernel[msg.E0]; exists {
+						dbg.Throw("application started twice: %s", msg.E0)
 					}
-					kernel[msg.name] = msg.ref
-					pidToName[msg.ref.PID()] = msg.name
+					kernel[msg.E0] = msg.E1
+					pidToName[msg.E1.PID()] = msg.E0
 
 				case process.ExitMsg:
 					switch msg.PID {
@@ -276,13 +270,13 @@ func __init(rootCtx ctx.Cancellable, flags Flags, apps []application.Application
 					}
 
 				case message[gotp.Atom]:
-					switch msg.msg {
+					switch msg.E1 {
 					case "get_applications":
 						kApps := make([]application.Application, len(apps))
 						copy(kApps, apps)
-						process.Send(msg.from, kApps)
+						process.Send(msg.E0, kApps)
 					case "get_status":
-						process.Send(msg.from, status)
+						process.Send(msg.E0, status)
 					}
 
 				default:

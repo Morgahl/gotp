@@ -3,6 +3,7 @@ package process
 import (
 	"github.com/Morgahl/gotp"
 	"github.com/Morgahl/gotp/assert"
+	"github.com/Morgahl/gotp/term"
 )
 
 type SpawnOpt func(*process)
@@ -38,11 +39,11 @@ func MailboxSize(size int) SpawnOpt {
 	return func(p *process) {
 		assert.Equal(p.state, STARTING_STATE, "process must be in STARTING_STATE for spawn options to be applied")
 		if p.mailbox == nil {
-			p.mailbox = make([]gotp.Term, 0, size)
+			p.mailbox = make([]term.Term, 0, size)
 		} else {
 			if cap(p.mailbox) < size {
 				oldMailbox := p.mailbox
-				p.mailbox = make([]gotp.Term, size)
+				p.mailbox = make([]term.Term, size)
 				copy(p.mailbox, oldMailbox)
 			}
 		}
@@ -57,7 +58,7 @@ func ChannelSize(size int) SpawnOpt {
 		assert.Equal(p.state, STARTING_STATE, "process must be in STARTING_STATE for spawn options to be applied")
 		if cap(p.signalChan) < size {
 			oldChan := p.signalChan
-			p.signalChan = make(chan signal[gotp.Term], size)
+			p.signalChan = make(chan signal[term.Term], size)
 			if len(oldChan) > 0 {
 				close(oldChan)
 				for msg := range oldChan {

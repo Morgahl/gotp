@@ -14,10 +14,6 @@ func init() {
 	gob.Register(PID{})
 }
 
-type PID struct {
-	raw uint64
-}
-
 const (
 	NODE_INDEX_BITS = 16
 	SERIAL_BITS     = 5
@@ -31,6 +27,10 @@ const (
 	SERIAL_MASK     = (1 << SERIAL_BITS) - 1
 	ID_MASK         = (1 << ID_BITS) - 1
 )
+
+type PID struct {
+	raw uint64
+}
 
 func NewPID(nodeID uint16, id uint64, serial uint8) PID {
 	raw := (uint64(nodeID) << NODE_INDEX_SHIFT) |
@@ -90,13 +90,13 @@ func (p PID) LogValue() slog.Value {
 	return slog.StringValue(p.String())
 }
 
-func (p PID) MarshalBinary() ([]byte, error) {
+func (p PID) GobEncode() ([]byte, error) {
 	var buf [binary.MaxVarintLen64]byte
 	n := binary.PutUvarint(buf[:], p.raw)
 	return buf[:n:n], nil
 }
 
-func (p *PID) UnmarshalBinary(data []byte) error {
+func (p *PID) GobDecode(data []byte) error {
 	raw, err := binary.ReadUvarint(newByteReader(data))
 	if err == nil {
 		p.raw = raw

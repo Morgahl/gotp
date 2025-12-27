@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Morgahl/gotp"
+	"github.com/Morgahl/gotp/term"
 )
 
 const (
@@ -57,7 +58,7 @@ func stepSerial() {
 	atomic.StoreUint64(&localID, 1)
 }
 
-func sendPID(pid PID, msg gotp.Term) {
+func sendPID(pid PID, msg term.Term) {
 	pidRef(pid).send(messageSignal(no_FLAGS, msg))
 }
 
@@ -65,7 +66,7 @@ func pidRef(pid PID) Ref {
 	return pidTree.Load(pid.raw)
 }
 
-func sendNamed(name gotp.Atom, msg gotp.Term) {
+func sendNamed(name gotp.Atom, msg term.Term) {
 	namedRef(name).send(messageSignal(no_FLAGS, msg))
 }
 

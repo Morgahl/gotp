@@ -13,9 +13,10 @@ import (
 	"github.com/Morgahl/gotp/internal/ctx"
 	"github.com/Morgahl/gotp/process"
 	"github.com/Morgahl/gotp/supervisor"
+	"github.com/Morgahl/gotp/term"
 )
 
-var _ gen_server.GenServer[any, gotp.Term, gotp.Term, gotp.Term, gotp.Term] = &server[any]{}
+var _ gen_server.GenServer[any, term.Term, term.Term, term.Term, term.Term] = &server[any]{}
 
 type server[I any] struct {
 	sup      supervisor.Supervisor[I]
@@ -30,13 +31,13 @@ func (s *server[I]) ChildSpec() supervisor.ChildSpec {
 	return s.sup.ChildSpec()
 }
 
-func (s *server[I]) Init(pctx process.Context, opts I) (cont gen_server.Continue[gotp.Term], err error) {
+func (s *server[I]) Init(pctx process.Context, opts I) (cont gen_server.Continue[term.Term], err error) {
 	pctx.TrapExit(true)
 
 	var options supervisor.Options
 	var children []supervisor.Supervisable
 	if options, children, err = s.sup.Init(pctx, opts); err != nil {
-		return gen_server.NoCont[gotp.Term](), err
+		return gen_server.NoCont[term.Term](), err
 	}
 
 	s.options = options.ApplyDefaults()
@@ -47,34 +48,34 @@ func (s *server[I]) Init(pctx process.Context, opts I) (cont gen_server.Continue
 		spec := child.ChildSpec()
 		s.specs = append(s.specs, spec)
 		if err := s.startChild(pctx, spec); err != nil {
-			return gen_server.NoCont[gotp.Term](), err
+			return gen_server.NoCont[term.Term](), err
 		}
 		pctx.ProcessPending()
 	}
 
-	return gen_server.NoCont[gotp.Term](), nil
+	return gen_server.NoCont[term.Term](), nil
 }
 
-func (s *server[I]) HandleCall(pctx process.Context, msg gotp.Term, _ process.PID) (resp gen_server.Response[gotp.Term], cont gen_server.Continue[gotp.Term], err error) {
+func (s *server[I]) HandleCall(pctx process.Context, msg term.Term, _ process.PID) (resp gen_server.Response[term.Term], cont gen_server.Continue[term.Term], err error) {
 	switch m := msg.(type) {
 	// starting child
 	case supervisor.ChildSpec:
 		if pid, ok := s.findChild(m); ok {
-			return gen_server.Reply[gotp.Term](supervisor.NewAlreadyStarted(pid)), gen_server.NoCont[gotp.Term](), nil
+			return gen_server.Reply[term.Term](supervisor.NewAlreadyStarted(pid)), gen_server.NoCont[term.Term](), nil
 		} else if err := s.startChild(pctx, m); err == nil {
-			return gen_server.Reply[gotp.Term](pid), gen_server.NoCont[gotp.Term](), nil
+			return gen_server.Reply[term.Term](pid), gen_server.NoCont[term.Term](), nil
 		} else {
-			return gen_server.Reply[gotp.Term](err), gen_server.NoCont[gotp.Term](), nil
+			return gen_server.Reply[term.Term](err), gen_server.NoCont[term.Term](), nil
 		}
 
 	// stopping child
 	case process.PID:
 		if child, ok := s.findChildByPID(m); !ok {
-			return gen_server.Reply[gotp.Term](false), gen_server.NoCont[gotp.Term](), nil
+			return gen_server.Reply[term.Term](false), gen_server.NoCont[term.Term](), nil
 		} else {
 			child.ref.Send(process.ExitMsg{PID: m, Reason: process.KILL})
 			removed := s.deregisterChild(m)
-			return gen_server.Reply[gotp.Term](removed), gen_server.NoCont[gotp.Term](), nil
+			return gen_server.Reply[term.Term](removed), gen_server.NoCont[term.Term](), nil
 		}
 	}
 
@@ -82,15 +83,15 @@ func (s *server[I]) HandleCall(pctx process.Context, msg gotp.Term, _ process.PI
 	panic("unreachable code")
 }
 
-func (s *server[I]) HandleCast(pctx process.Context, msg gotp.Term) (cont gen_server.Continue[gotp.Term], err error) {
-	return gen_server.NoCont[gotp.Term](), nil
+func (s *server[I]) HandleCast(pctx process.Context, msg term.Term) (cont gen_server.Continue[term.Term], err error) {
+	return gen_server.NoCont[term.Term](), nil
 }
 
-func (s *server[I]) HandleContinue(pctx process.Context, arg gotp.Term) (cont gen_server.Continue[gotp.Term], err error) {
-	return gen_server.NoCont[gotp.Term](), nil
+func (s *server[I]) HandleContinue(pctx process.Context, arg term.Term) (cont gen_server.Continue[term.Term], err error) {
+	return gen_server.NoCont[term.Term](), nil
 }
 
-func (s *server[I]) HandleInfo(pctx process.Context, info gotp.Term) (cont gen_server.Continue[gotp.Term], err error) {
+func (s *server[I]) HandleInfo(pctx process.Context, info term.Term) (cont gen_server.Continue[term.Term], err error) {
 	defer func() {
 		if r := recover(); r != nil {
 		}
@@ -98,33 +99,33 @@ func (s *server[I]) HandleInfo(pctx process.Context, info gotp.Term) (cont gen_s
 	switch info := info.(type) {
 	case process.ExitMsg:
 		if info.PID == pctx.PID() {
-			return gen_server.NoCont[gotp.Term](), info.Reason
+			return gen_server.NoCont[term.Term](), info.Reason
 		}
 
 		child, ok := s.findChildByPID(info.PID)
 		if !ok {
-			return gen_server.NoCont[gotp.Term](), nil
+			return gen_server.NoCont[term.Term](), nil
 		}
 		// need to call this here as the deregisterChild will remove the child from the map
 		shouldRestart := s.shouldRestart(info.PID, info.Reason)
 		if !s.deregisterChild(info.PID) {
-			return gen_server.NoCont[gotp.Term](), nil
+			return gen_server.NoCont[term.Term](), nil
 		} else if !shouldRestart {
 			if s.options.AutoShutdown == supervisor.ALL_SIGNIFICANT && s.sigCount == 0 {
 				slog.DebugContext(pctx.Context(), "StaticSupervisor.HandleInfo - no children left, stopping")
-				return gen_server.Stop[gotp.Term](process.NORMAL), nil
+				return gen_server.Stop[term.Term](process.NORMAL), nil
 			}
-			return gen_server.NoCont[gotp.Term](), nil
+			return gen_server.NoCont[term.Term](), nil
 		}
 		if err := s.startChild(pctx, child.spec); err != nil {
 			// TODO: track this timer somewhere?
 			// TODO: also this likely need to be a computed reset for the after timer
-			_ = pctx.SendAfter(gen_server.CallMsg[gotp.Term, gotp.Term](pctx.PID(), child), s.options.ResetPeriod)
-			return gen_server.NoCont[gotp.Term](), err
+			_ = pctx.SendAfter(gen_server.CallMsg[term.Term, term.Term](pctx.PID(), child), s.options.ResetPeriod)
+			return gen_server.NoCont[term.Term](), err
 		}
 	}
 
-	return gen_server.NoCont[gotp.Term](), nil
+	return gen_server.NoCont[term.Term](), nil
 }
 
 func (s *server[I]) Terminate(pctx process.Context, reason error) (newReson error) {

@@ -5,13 +5,14 @@ import (
 	"time"
 
 	"github.com/Morgahl/gotp"
+	"github.com/Morgahl/gotp/term"
 )
 
 type Sendable interface {
 	Ref | PID | gotp.Atom
 }
 
-func Send[S Sendable](to S, m gotp.Term) {
+func Send[S Sendable](to S, m term.Term) {
 	defer func() { recover() }()
 	switch v := any(to).(type) {
 	case Ref:
@@ -25,11 +26,11 @@ func Send[S Sendable](to S, m gotp.Term) {
 	}
 }
 
-func SendAfter[S Sendable](s S, m gotp.Term, delay time.Duration) *time.Timer {
+func SendAfter[S Sendable](s S, m term.Term, delay time.Duration) *time.Timer {
 	return time.AfterFunc(delay, func() { Send(s, m) })
 }
 
-func ReceiveWithTimeout[M gotp.Term](pctx Context, timeout time.Duration) (M, bool, error) {
+func ReceiveWithTimeout[M term.Term](pctx Context, timeout time.Duration) (M, bool, error) {
 	var after <-chan time.Time
 	if timeout > 0 {
 		after = time.After(timeout)
@@ -37,7 +38,7 @@ func ReceiveWithTimeout[M gotp.Term](pctx Context, timeout time.Duration) (M, bo
 	return receive[M](pctx, after)
 }
 
-func ReceiveContext[M gotp.Term](pctx Context, ctx context.Context) (M, bool, error) {
+func ReceiveContext[M term.Term](pctx Context, ctx context.Context) (M, bool, error) {
 	m, ok, err := receive[M](pctx, ctx.Done())
 	if err == nil {
 		err = context.Cause(ctx)
@@ -45,7 +46,7 @@ func ReceiveContext[M gotp.Term](pctx Context, ctx context.Context) (M, bool, er
 	return m, ok, err
 }
 
-func receive[M gotp.Term, D any](pctx Context, done <-chan D) (_ M, _ bool, reason error) {
+func receive[M term.Term, D any](pctx Context, done <-chan D) (_ M, _ bool, reason error) {
 	var readOffset int
 	var messageSkipOffset int
 	defer pctx.process.maybeGarbageCollect()

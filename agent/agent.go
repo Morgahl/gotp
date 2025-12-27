@@ -5,9 +5,10 @@ import (
 	"github.com/Morgahl/gotp/gen_server"
 	"github.com/Morgahl/gotp/process"
 	"github.com/Morgahl/gotp/supervisor"
+	"github.com/Morgahl/gotp/term"
 )
 
-var _ gen_server.GenServer[InitFn[int], gotp.Term, int, gotp.Term, gotp.Term] = &agent[int]{}
+var _ gen_server.GenServer[InitFn[int], term.Term, int, term.Term, term.Term] = &agent[int]{}
 
 type InitFn[T any] func() *T
 
@@ -35,44 +36,44 @@ func (a *agent[T]) ChildSpec() supervisor.ChildSpec {
 	}
 }
 
-func (a *agent[T]) Init(pctx process.Context, initFn InitFn[T]) (gen_server.Continue[gotp.Term], error) {
+func (a *agent[T]) Init(pctx process.Context, initFn InitFn[T]) (gen_server.Continue[term.Term], error) {
 	a.state = initFn()
-	return gen_server.NoCont[gotp.Term](), nil
+	return gen_server.NoCont[term.Term](), nil
 }
 
-func (a *agent[T]) HandleCall(pctx process.Context, msg gotp.Term, from process.PID) (gen_server.Response[T], gen_server.Continue[gotp.Term], error) {
+func (a *agent[T]) HandleCall(pctx process.Context, msg term.Term, from process.PID) (gen_server.Response[T], gen_server.Continue[term.Term], error) {
 	switch msg := msg.(type) {
 	case GetFn[T]:
-		return gen_server.Reply(msg(*a.state)), gen_server.NoCont[gotp.Term](), nil
+		return gen_server.Reply(msg(*a.state)), gen_server.NoCont[term.Term](), nil
 	case GetAndUpdateFn[T]:
-		return gen_server.Reply(msg(a.state)), gen_server.NoCont[gotp.Term](), nil
+		return gen_server.Reply(msg(a.state)), gen_server.NoCont[term.Term](), nil
 	case UpdateFn[T]:
 		msg(a.state)
-		return gen_server.NoReply[T](), gen_server.NoCont[gotp.Term](), nil
+		return gen_server.NoReply[T](), gen_server.NoCont[term.Term](), nil
 	default:
 		cont, err := a.HandleInfo(pctx, msg)
 		return gen_server.NoReply[T](), cont, err
 	}
 }
 
-func (a *agent[T]) HandleCast(pctx process.Context, msg gotp.Term) (gen_server.Continue[gotp.Term], error) {
+func (a *agent[T]) HandleCast(pctx process.Context, msg term.Term) (gen_server.Continue[term.Term], error) {
 	switch msg := msg.(type) {
 	case UpdateFn[T]:
 		msg(a.state)
-		return gen_server.NoCont[gotp.Term](), nil
+		return gen_server.NoCont[term.Term](), nil
 	default:
 		return a.HandleInfo(pctx, msg)
 	}
 }
 
-func (a *agent[T]) HandleInfo(pctx process.Context, msg gotp.Term) (gen_server.Continue[gotp.Term], error) {
+func (a *agent[T]) HandleInfo(pctx process.Context, msg term.Term) (gen_server.Continue[term.Term], error) {
 	switch msg := msg.(type) {
 	case process.ExitMsg:
 		if msg.PID == pctx.PID() {
-			return gen_server.Stop[gotp.Term](msg.Reason), nil
+			return gen_server.Stop[term.Term](msg.Reason), nil
 		}
 	}
-	return gen_server.NoCont[gotp.Term](), nil
+	return gen_server.NoCont[term.Term](), nil
 }
 
 func (a *agent[T]) Terminate(pctx process.Context, reason error) error {
