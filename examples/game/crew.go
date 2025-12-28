@@ -16,10 +16,10 @@ import (
 )
 
 const (
-	MIN_DURATION      = 2 * time.Second
-	MID_LOW_DURATION  = 3 * time.Second
-	MID_HIGH_DURATION = 5 * time.Second
-	MAX_DURATION      = 8 * time.Second
+	MIN_DURATION      = 1 * time.Second
+	MID_LOW_DURATION  = 2 * time.Second
+	MID_HIGH_DURATION = 3 * time.Second
+	MAX_DURATION      = 5 * time.Second
 
 	atom_GET_WORK gotp.Atom = "get_work"
 )

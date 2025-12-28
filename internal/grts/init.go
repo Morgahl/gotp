@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"time"
 
 	"github.com/Morgahl/gotp"
@@ -36,6 +37,12 @@ func Boot(flags Flags, apps ...application.Application) (err error) {
 	assert.Zero(init_ref, "grts.Boot: already booted")
 	ctx := ctx.Root()
 	defer ctx.Cancel(fmt.Errorf("grts.Boot: exiting"))
+
+	go func() {
+		if err := http.ListenAndServe(":6060", nil); err != nil {
+			panic(err)
+		}
+	}()
 
 	exitCh := make(chan error)
 	if init_ref, err = process.Spawn(__init(ctx, flags, apps, exitCh), process.Named("init")); err != nil {

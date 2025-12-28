@@ -1,6 +1,8 @@
 package process
 
 import (
+	"expvar"
+	"fmt"
 	"log/slog"
 	"sync/atomic"
 	"time"
@@ -15,7 +17,6 @@ const (
 
 var (
 	localID uint64 = 0
-	serial  uint32 = 0
 
 	pidTree  *PIDTree
 	nameTree *NameTree
@@ -27,6 +28,28 @@ func init() {
 	pidTree = NewPIDTree()
 	nameTree = NewNameTree()
 	go statusWaiter()
+	expvar.Publish("gotp_process", expvar.Func(collectMetrics))
+}
+
+func nextPID() PID {
+	id := atomic.AddUint64(&localID, 1)
+	return NewPID(0, id, uint8((id&SERIAL_MASK)>>SERIAL_SHIFT))
+}
+
+func sendPID(pid PID, msg term.Term) {
+	pidRef(pid).send(messageSignal(no_FLAGS, msg))
+}
+
+func pidRef(pid PID) Ref {
+	return pidTree.Load(pid.raw)
+}
+
+func sendNamed(name gotp.Atom, msg term.Term) {
+	namedRef(name).send(messageSignal(no_FLAGS, msg))
+}
+
+func namedRef(name gotp.Atom) Ref {
+	return nameTree.Load(name.String())
 }
 
 func statusWaiter() {
@@ -45,31 +68,18 @@ func statusWaiter() {
 	}
 }
 
-func nextPID() PID {
-	id := atomic.AddUint64(&localID, 1)
-	if id > ID_MASK {
-		stepSerial()
+type Metrics struct {
+	PIDCount  uint64
+	NameCount uint64
+}
+
+func (m Metrics) MarshalJSON() ([]byte, error) {
+	return []byte(fmt.Sprintf(`{"PIDCount": %d, "NameCount": %d}`, m.PIDCount, m.NameCount)), nil
+}
+
+func collectMetrics() any {
+	return Metrics{
+		PIDCount:  uint64(pidTree.Count()),
+		NameCount: uint64(nameTree.Count()),
 	}
-	return NewPID(0, id, uint8(atomic.LoadUint32(&serial)&SERIAL_MASK))
-}
-
-func stepSerial() {
-	atomic.AddUint32(&serial, 1)
-	atomic.StoreUint64(&localID, 1)
-}
-
-func sendPID(pid PID, msg term.Term) {
-	pidRef(pid).send(messageSignal(no_FLAGS, msg))
-}
-
-func pidRef(pid PID) Ref {
-	return pidTree.Load(pid.raw)
-}
-
-func sendNamed(name gotp.Atom, msg term.Term) {
-	namedRef(name).send(messageSignal(no_FLAGS, msg))
-}
-
-func namedRef(name gotp.Atom) Ref {
-	return nameTree.Load(name.String())
 }
