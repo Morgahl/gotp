@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand"
+	"runtime"
+	"sync"
 	"time"
 
 	"github.com/Morgahl/gotp/agent"
@@ -11,25 +13,43 @@ import (
 	"github.com/Morgahl/gotp/process"
 )
 
+const (
+	COUNT = 10_000_000
+)
+
 func init() {
+	// runtime.GOMAXPROCS(1)
 	logger.ConfigFromEnv()
 }
 
 func main() {
-	// runtime.GOMAXPROCS(1)
+	CPU := runtime.NumCPU()
+	for workers := 1; workers <= CPU; {
+		slog.Info("Running harness", "workers", workers, "cpus", CPU)
+		runHarness(workers)
+		if workers == 1 {
+			workers = 2
+		} else {
+			workers += 2
+		}
+	}
+}
+
+func runHarness(workers int) {
 	start := time.Now()
-	agent, err := newAgent(baseline[float64]())
+	singleWorkerAgent, err := newAgent(baseline[float64]())
 	if err != nil {
 		panic(err)
 	}
-	count := 10_000_000
-	slog.Info("Running missions with agent", "pid", agent.pid, "count", count)
+	defer singleWorkerAgent.Stop(process.NORMAL)
+
+	slog.Info("Running missions with agent", "pid", singleWorkerAgent.ref.PID(), "count", COUNT)
 	runStart := time.Now()
-	runMissions(agent, count)
-	slog.Info("Completed missions", "count", count, "took", time.Since(runStart))
-	value := agent.EvaluatePerformance()
+	runParallelMissions(singleWorkerAgent, COUNT, workers)
+	slog.Info("Completed missions", "count", COUNT, "took", time.Since(runStart))
+	value := singleWorkerAgent.EvaluatePerformance()
 	took := time.Since(start)
-	slog.Info("Performance Evaluation", "result", value, "took", took, "avg", took/time.Duration(count))
+	slog.Info("Performance Evaluation", "result", value, "took", took, "avg", took/time.Duration(COUNT))
 }
 
 func baseline[N number]() agent.InitFn[state[N]] {
@@ -38,15 +58,24 @@ func baseline[N number]() agent.InitFn[state[N]] {
 	}
 }
 
-func runMissions(agent *Agent[float64], numMissions int) {
-	for i := 0; i < numMissions; i++ {
-		// slog.Debug("Running mission", "mission", i+1)
-		score := (rand.Float64() * 25) + 75
-		loss := rand.Float64() * (100 - score)
-		// slog.Debug("Submitting report", "mission", i+1, "score", score, "loss", loss, "net", score-loss)
-		agent.LogMission(score, loss)
-		// slog.Debug("Mission report submitted", "mission", i+1)
+func runParallelMissions[N number](agent *Agent[N], numMissions int, numWorkers int) {
+	missionsPerWorker := numMissions / numWorkers
+	wg := sync.WaitGroup{}
+	wg.Add(numWorkers)
+	for w := 0; w < numWorkers; w++ {
+		go func(workerID int) {
+			defer wg.Done()
+			for i := 0; i < missionsPerWorker; i++ {
+				// slog.Debug("Worker running mission", "worker", workerID, "mission", i+1)
+				score := N((rand.Float64() * 25) + 75)
+				loss := N(rand.Float64() * (100 - float64(score)))
+				// slog.Debug("Worker submitting report", "worker", workerID, "mission", i+1, "score", score, "loss", loss, "net", score-loss)
+				agent.LogMission(score, loss)
+				// slog.Debug("Worker mission report submitted", "worker", workerID, "mission", i+1)
+			}
+		}(w)
 	}
+	wg.Wait()
 }
 
 type number interface {
@@ -56,7 +85,7 @@ type number interface {
 }
 
 type Agent[N number] struct {
-	pid process.PID
+	ref process.Ref
 }
 
 func newAgent[N number](initFn agent.InitFn[state[N]]) (*Agent[N], error) {
@@ -64,16 +93,20 @@ func newAgent[N number](initFn agent.InitFn[state[N]]) (*Agent[N], error) {
 	if err != nil {
 		return nil, err
 	}
-	c := &Agent[N]{pid: server.PID()}
+	c := &Agent[N]{ref: server}
 	return c, nil
 }
 
+func (c *Agent[N]) Stop(reason error) {
+	agent.Stop(c.ref, reason)
+}
+
 func (c *Agent[N]) LogMission(score, loss N) {
-	agent.Update(c.pid, func(state *state[N]) { state.Update(score - loss) })
+	agent.Update(c.ref, func(state *state[N]) { state.Update(score - loss) })
 }
 
 func (c *Agent[N]) EvaluatePerformance() N {
-	n, _ := agent.Get(c.pid, c.pid, func(state state[N]) state[N] { return state }, 0)
+	n, _ := agent.Get(c.ref, c.ref.PID(), func(state state[N]) state[N] { return state }, 0)
 	slog.Info("Evaluating performance", "state", n)
 	return n.EvaluatePerformance()
 }

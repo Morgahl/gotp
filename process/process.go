@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"sync/atomic"
 
 	"github.com/Morgahl/gotp"
 	"github.com/Morgahl/gotp/assert"
@@ -126,6 +127,7 @@ func (p *process) run(runFn RunFn) {
 }
 
 func (p *process) send(s signal[term.Term]) {
+	defer atomic.AddUint64(&processSendCount, 1)
 	defer func() { recover() }()
 	p.signalChan <- s
 }

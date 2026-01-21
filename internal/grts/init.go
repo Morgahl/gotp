@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"time"
 
@@ -37,12 +38,9 @@ func Boot(flags Flags, apps ...application.Application) (err error) {
 	assert.Zero(init_ref, "grts.Boot: already booted")
 	ctx := ctx.Root()
 	defer ctx.Cancel(fmt.Errorf("grts.Boot: exiting"))
-
-	go func() {
-		if err := http.ListenAndServe(":6060", nil); err != nil {
-			panic(err)
-		}
-	}()
+	if err = startMetricsServer(); err != nil {
+		slog.Warn("grts.Boot: failed to start metrics server", slog.Any("error", err))
+	}
 
 	exitCh := make(chan error)
 	if init_ref, err = process.Spawn(__init(ctx, flags, apps, exitCh), process.Named("init")); err != nil {
@@ -330,4 +328,31 @@ func boot(initRef process.Ref, apps []application.Application) process.RunFn {
 
 		return process.NORMAL
 	}
+}
+
+func startMetricsServer() error {
+	ln6, err6 := net.Listen("tcp", "[::1]:6060")
+	ln4, err4 := net.Listen("tcp", "127.0.0.1:6060")
+
+	if err6 != nil && err4 != nil {
+		slog.Warn("grts.Boot: failed to start http server for metrics", slog.Any("ipv6_error", err6), slog.Any("ipv4_error", err4))
+		return errors.Join(err6, err4)
+	}
+
+	if ln6 != nil {
+		go func() {
+			if err := http.Serve(ln6, nil); err != nil {
+				slog.Error("http.Serve ipv6 failed", slog.Any("error", err))
+			}
+		}()
+	}
+
+	if ln4 != nil {
+		go func() {
+			if err := http.Serve(ln4, nil); err != nil {
+				slog.Error("http.Serve ipv4 failed", slog.Any("error", err))
+			}
+		}()
+	}
+	return nil
 }

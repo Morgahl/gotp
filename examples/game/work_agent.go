@@ -1,10 +1,12 @@
 package game
 
 import (
+	"expvar"
 	"fmt"
 	"log/slog"
 	"math"
 	"math/rand"
+	"runtime"
 	"time"
 
 	"github.com/Morgahl/gotp"
@@ -12,6 +14,26 @@ import (
 	"github.com/Morgahl/gotp/process"
 	"github.com/Morgahl/gotp/supervisor"
 )
+
+type Metrics struct {
+	Generated uint64
+	Processed uint64
+	Remaining uint64
+}
+
+func collectMetrics(agent *WorkAgent) func() any {
+	return func() any {
+		state, ok := GetState(agent.name, process.PIDZero())
+		if !ok {
+			return nil
+		}
+		return Metrics{
+			Generated: state.generated,
+			Processed: state.processed,
+			Remaining: state.wanted - state.processed,
+		}
+	}
+}
 
 type WorkAgent struct {
 	name   gotp.Atom
@@ -30,10 +52,11 @@ func (w *WorkAgent) ChildSpec() supervisor.ChildSpec {
 		func() *state {
 			s := state{wanted: w.wanted, next: true}
 			s.stepNextLog()
+			expvar.Publish(string(w.name)+"_metrics", expvar.Func(collectMetrics(w)))
 			return &s
 		},
 		process.Named(w.name),
-		process.ChannelSize(256),
+		process.ChannelSize(max(runtime.GOMAXPROCS(0)<<3, 32)),
 	)
 }
 
@@ -63,6 +86,10 @@ func SubmitProcessedWork[S process.Sendable](agnt S, from process.PID, work *wor
 		return nil, false
 	}
 	return s.workItem, s.next
+}
+
+func GetState[S process.Sendable](agnt S, from process.PID) (state, bool) {
+	return agent.Get(agnt, from, func(state state) state { return state }, 0) // indefinite timeout, this is an example that often runs at maximum capacity on systems to ensure "the system always moves forward"
 }
 
 type state struct {

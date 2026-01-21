@@ -2,7 +2,6 @@ package process
 
 import (
 	"expvar"
-	"fmt"
 	"log/slog"
 	"sync/atomic"
 	"time"
@@ -16,7 +15,9 @@ const (
 )
 
 var (
-	localID uint64 = 0
+	localID          uint64 = 0
+	globalSendCount  uint64 = 0
+	processSendCount uint64 = 0
 
 	pidTree  *PIDTree
 	nameTree *NameTree
@@ -69,17 +70,17 @@ func statusWaiter() {
 }
 
 type Metrics struct {
-	PIDCount  uint64
-	NameCount uint64
-}
-
-func (m Metrics) MarshalJSON() ([]byte, error) {
-	return []byte(fmt.Sprintf(`{"PIDCount": %d, "NameCount": %d}`, m.PIDCount, m.NameCount)), nil
+	PIDCount         uint64
+	NameCount        uint64
+	GlobalSendCount  uint64
+	ProcessSendCount uint64
 }
 
 func collectMetrics() any {
 	return Metrics{
-		PIDCount:  uint64(pidTree.Count()),
-		NameCount: uint64(nameTree.Count()),
+		PIDCount:         uint64(pidTree.Count()),
+		NameCount:        uint64(nameTree.Count()),
+		GlobalSendCount:  atomic.LoadUint64(&globalSendCount),
+		ProcessSendCount: atomic.LoadUint64(&processSendCount),
 	}
 }

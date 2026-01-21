@@ -43,15 +43,6 @@ func treeOfTeams(workAgent, team gotp.Atom, teams [][]gotp.Atom, crew []gotp.Ato
 	return NewTeam(team, DEFAULT_SUPERVISOR_OPTIONS, supervisors...)
 }
 
-func buildTeams(workAgent gotp.Atom, teams, crew []gotp.Atom) []supervisor.Supervisable {
-	var supervisors []supervisor.Supervisable
-	supervisors = append(supervisors, NewWorkAgent(workAgent, 2*uint64(len(teams)*len(crew))))
-	for _, t := range teams {
-		supervisors = append(supervisors, NewTeam(t, DEFAULT_SUPERVISOR_OPTIONS, buildCrew(workAgent, t, crew)...))
-	}
-	return supervisors
-}
-
 type Team struct {
 	id    gotp.Atom
 	flags supervisor.Options

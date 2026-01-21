@@ -2,6 +2,7 @@ package process
 
 import (
 	"context"
+	"sync/atomic"
 	"time"
 
 	"github.com/Morgahl/gotp"
@@ -13,6 +14,7 @@ type Sendable interface {
 }
 
 func Send[S Sendable](to S, m term.Term) {
+	defer atomic.AddUint64(&globalSendCount, 1)
 	defer func() { recover() }()
 	switch v := any(to).(type) {
 	case Ref:
@@ -29,6 +31,8 @@ func Send[S Sendable](to S, m term.Term) {
 func SendAfter[S Sendable](s S, m term.Term, delay time.Duration) *time.Timer {
 	return time.AfterFunc(delay, func() { Send(s, m) })
 }
+
+func Receive[M term.Term](pctx Context) (M, bool, error) { return receive[M, struct{}](pctx, nil) }
 
 func ReceiveWithTimeout[M term.Term](pctx Context, timeout time.Duration) (M, bool, error) {
 	var after <-chan time.Time
