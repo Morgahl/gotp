@@ -132,7 +132,7 @@ func (br *byteReader) ReadByte() (byte, error) {
 func (br *byteReader) Read(p []byte) (n int, err error) {
 	n = copy(p, *br)
 	*br = (*br)[n:]
-	if n == len(p) {
+	if len(*br) == 0 {
 		err = io.EOF
 	}
 	return n, err

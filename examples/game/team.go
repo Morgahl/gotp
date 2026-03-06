@@ -37,7 +37,7 @@ func treeOfTeams(workAgent, team gotp.Atom, teams [][]gotp.Atom, crew []gotp.Ato
 			count *= len(t)
 		}
 		// prepend the work agent to the list of supervisors
-		supervisors = append([]supervisor.Supervisable{NewWorkAgent(workAgent, 2*uint64(count*len(crew)))}, supervisors...)
+		supervisors = append([]supervisor.Supervisable{NewWorkAgent(workAgent, 25*uint64(count*len(crew)))}, supervisors...)
 		return NewTeam("teams", DEFAULT_SUPERVISOR_OPTIONS, supervisors...)
 	}
 	return NewTeam(team, DEFAULT_SUPERVISOR_OPTIONS, supervisors...)

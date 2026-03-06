@@ -11,7 +11,7 @@ import (
 
 const (
 	DEFAULT_SHUTDOWN = 5 * time.Second
-	INFINITY         = 0 // 0 means indenfinite wait for shutdown
+	INFINITY         = 0 // 0 means infinite wait for shutdown
 )
 
 type ChildSpec struct {

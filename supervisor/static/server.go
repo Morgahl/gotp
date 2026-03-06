@@ -62,10 +62,12 @@ func (s *server[I]) HandleCall(pctx process.Context, msg term.Term, _ process.PI
 	case supervisor.ChildSpec:
 		if pid, ok := s.findChild(m); ok {
 			return gen_server.Reply[term.Term](supervisor.NewAlreadyStarted(pid)), gen_server.NoCont[term.Term](), nil
-		} else if err := s.startChild(pctx, m); err == nil {
+		} else if err := s.startChild(pctx, m); err != nil {
+			return gen_server.Reply[term.Term](err), gen_server.NoCont[term.Term](), nil
+		} else if pid, ok := s.findChild(m); ok {
 			return gen_server.Reply[term.Term](pid), gen_server.NoCont[term.Term](), nil
 		} else {
-			return gen_server.Reply[term.Term](err), gen_server.NoCont[term.Term](), nil
+			return gen_server.Reply[term.Term](supervisor.NewNotStarted()), gen_server.NoCont[term.Term](), nil
 		}
 
 	// stopping child
@@ -92,10 +94,6 @@ func (s *server[I]) HandleContinue(pctx process.Context, arg term.Term) (cont ge
 }
 
 func (s *server[I]) HandleInfo(pctx process.Context, info term.Term) (cont gen_server.Continue[term.Term], err error) {
-	defer func() {
-		if r := recover(); r != nil {
-		}
-	}()
 	switch info := info.(type) {
 	case process.ExitMsg:
 		if info.PID == pctx.PID() {
@@ -117,15 +115,97 @@ func (s *server[I]) HandleInfo(pctx process.Context, info term.Term) (cont gen_s
 			}
 			return gen_server.NoCont[term.Term](), nil
 		}
-		if err := s.startChild(pctx, child.spec); err != nil {
-			// TODO: track this timer somewhere?
-			// TODO: also this likely need to be a computed reset for the after timer
-			_ = pctx.SendAfter(gen_server.CallMsg[term.Term, term.Term](pctx.PID(), child), s.options.ResetPeriod)
-			return gen_server.NoCont[term.Term](), err
+
+		switch s.options.Strategy {
+		case supervisor.ONE_FOR_ONE:
+			return s.restartOneForOne(pctx, child)
+		case supervisor.ONE_FOR_ALL:
+			return s.restartOneForAll(pctx, child)
+		case supervisor.REST_FOR_ONE:
+			return s.restartRestForOne(pctx, child)
 		}
 	}
 
 	return gen_server.NoCont[term.Term](), nil
+}
+
+func (s *server[I]) restartOneForOne(pctx process.Context, failed child) (gen_server.Continue[term.Term], error) {
+	if err := s.startChild(pctx, failed.spec); err != nil {
+		_ = pctx.SendAfter(gen_server.CallMsg[term.Term, term.Term](pctx.PID(), failed), s.options.ResetPeriod)
+		return gen_server.NoCont[term.Term](), err
+	}
+	return gen_server.NoCont[term.Term](), nil
+}
+
+func (s *server[I]) restartOneForAll(pctx process.Context, failed child) (gen_server.Continue[term.Term], error) {
+	s.stopAllChildren(pctx)
+	for _, spec := range s.specs {
+		if err := s.startChild(pctx, spec); err != nil {
+			return gen_server.NoCont[term.Term](), err
+		}
+		pctx.ProcessPending()
+	}
+	return gen_server.NoCont[term.Term](), nil
+}
+
+func (s *server[I]) restartRestForOne(pctx process.Context, failed child) (gen_server.Continue[term.Term], error) {
+	// Find the position of the failed child's spec in the ordered spec list.
+	failedIdx := -1
+	for i, spec := range s.specs {
+		if spec.Equals(failed.spec) {
+			failedIdx = i
+			break
+		}
+	}
+	if failedIdx == -1 {
+		// Spec not in the ordered list; fall back to one-for-one.
+		return s.restartOneForOne(pctx, failed)
+	}
+
+	// Stop children whose specs come after the failed child (reverse order).
+	specsToRestart := s.specs[failedIdx:]
+	for i := len(specsToRestart) - 1; i >= 0; i-- {
+		spec := specsToRestart[i]
+		if pid, ok := s.childIDs[spec.ID]; ok {
+			s.stopChild(pctx, pid)
+		}
+	}
+
+	// Restart the failed child and all subsequent children in spec order.
+	for _, spec := range specsToRestart {
+		if err := s.startChild(pctx, spec); err != nil {
+			return gen_server.NoCont[term.Term](), err
+		}
+		pctx.ProcessPending()
+	}
+	return gen_server.NoCont[term.Term](), nil
+}
+
+func (s *server[I]) stopAllChildren(pctx process.Context) {
+	children := make([]child, 0, len(s.children))
+	for _, c := range s.children {
+		children = append(children, c)
+	}
+	slices.SortFunc(children, func(i, j child) int {
+		return process.ComparePID(i.ref.PID(), j.ref.PID()) * -1
+	})
+	for _, c := range children {
+		s.stopChild(pctx, c.ref.PID())
+	}
+}
+
+func (s *server[I]) stopChild(pctx process.Context, pid process.PID) {
+	c, ok := s.findChildByPID(pid)
+	if !ok {
+		return
+	}
+	timeout := c.spec.Shutdown
+	c.ref.Send(process.ExitMsg{PID: pid, Reason: process.KILL})
+	if msg, ok, _ := process.ReceiveWithTimeout[process.ExitMsg](pctx, timeout); ok {
+		s.deregisterChild(msg.PID)
+	} else {
+		s.deregisterChild(pid)
+	}
 }
 
 func (s *server[I]) Terminate(pctx process.Context, reason error) (newReson error) {
@@ -134,7 +214,7 @@ func (s *server[I]) Terminate(pctx process.Context, reason error) (newReson erro
 		children = append(children, c)
 	}
 
-	// TODO: ultimately we want to maintin the processes as a stack and reap them in reverse order
+	// TODO: ultimately we want to maintain the processes as a stack and reap them in reverse order
 	// TODO: for now, we sort them by PID in descending order to ensure that the most recently started
 	// TODO: processes are terminated first
 	// TODO: we may be able to borrow lazy GC practices from the process.Process's mailbox cleanup to
@@ -155,7 +235,7 @@ func (s *server[I]) Terminate(pctx process.Context, reason error) (newReson erro
 			s.deregisterChild(msg.PID)
 			continue
 		} else {
-			s.deregisterChild(msg.PID)
+			s.deregisterChild(pid)
 		}
 	}
 	return reason
@@ -217,7 +297,7 @@ func (s *server[I]) deregisterChild(pid process.PID) (deleted bool) {
 	return deleted
 }
 
-// shuouldRestart checks if the child should be restarted based on the restart strategy; assumes that the PID is not the supervisor's PID
+// shouldRestart checks if the child should be restarted based on the restart strategy; assumes that the PID is not the supervisor's PID
 func (s *server[I]) shouldRestart(pid process.PID, reason error) (restart bool) {
 	cs, ok := s.children[pid]
 	if !ok {
@@ -246,9 +326,7 @@ func (s *server[I]) shouldRestart(pid process.PID, reason error) (restart bool) 
 			restart = false
 		}
 
-		if restart {
-			s.children[pid] = cs
-		}
+		s.children[pid] = cs
 	}
 
 	return restart

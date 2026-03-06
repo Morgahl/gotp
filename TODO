@@ -1,26 +1,231 @@
-Ctx cancellation is great but we actually want to propagate down the tree with exits and let them
-roll back upwards. Let adhoc processes terminate from the ctx cancellation directly
+# gotp Roadmap
+
+
+## Tests
+
+No tests for process, gen_server, or supervisor. Only assert/ and process/ctrie_test.go exist.
+Need test suites for:
+- process/ — spawn lifecycle, link/monitor propagation, exit handling, message delivery
+- gen_server/ — call/cast/continue/handleinfo flow, timeout, terminate
+- supervisor/static/ — restart strategies, restart intensity, child ordering, shutdown, auto-shutdown
+- Each new module below gets tests as part of implementation
+
+
+## The Rest of StaticSupervisor
+
+Files: supervisor/static/server.go, supervisor/behaviour.go, supervisor/child_spec.go
+
+TRANSIENT restart is broken. shouldRestart (server.go:312) groups TRANSIENT with TEMPORARY
+and both return false. TRANSIENT should restart on abnormal exit (non-normal, non-shutdown).
+Only TEMPORARY never restarts.
+
+Restart intensity is per-child right now. Erlang does it per-supervisor with a sliding window:
+maintain a []time.Time on the server, one entry per restart. On each restart prepend time.Now(),
+prune entries older than ResetPeriod. If len(restarts) > MaxRestarts the supervisor itself
+terminates. This catches cascading failures — 4 different children crashing in quick succession
+should kill the supervisor, per-child tracking misses that completely.
+Erlang optimization: keep an nrestarts counter alongside the list. When nrestarts < intensity
+skip the traversal (O(1) fast path). Only traverse when counter hits the threshold.
+
+Shutdown sends KILL immediately (server.go:203). Should send shutdown first, wait up to the
+child's Shutdown timeout, then escalate to KILL if the child hasn't exited. The ReceiveWithTimeout
+already handles the wait.
+
+Child ordering (the TODO at server.go:217-222): currently sorts by PID descending as proxy for
+reverse-start-order. Breaks when children restart (new PID != original position). Erlang uses
+{[child_id()], #{child_id() => child_rec()}} — ordered list + map. Replace children/childIDs
+maps with:
+- order []gotp.Atom — child IDs in start order
+- byID map[gotp.Atom]child — O(1) lookup by ID
+- byPID map[PID]gotp.Atom — reverse PID → ID for ExitMsg handling
+Eliminates sort, fixes rest_for_one and one_for_all ordering.
+
+
+## The Rest of DynamicSupervisor
+
+Erlang's simple_one_for_one extracted into its own module by Elixir. Starts with zero children,
+all added via start_child. Only ONE_FOR_ONE (no ordering dependencies between children).
+
+Erlang internals: children stored in map[PID]child, no ordering, O(1) insert/delete.
+Temporary children don't store start args (mapsets vs maps internally) — saves memory.
+Shutdown is parallel: signal all children, collect DOWN messages with shared timer.
+Child spec ID is ignored — identified by PID only.
+dynamic_restarts counter tracks in-flight restart attempts for failed restarts.
+
+Erlang uses a single template spec, start_child appends extra args.
+Elixir DynamicSupervisor accepts per-child specs, no template.
+
+max_children: hard cap on concurrent children (default unlimited), returns error when exceeded.
+extra_arguments: Elixir prepends shared args to every child's start call.
+
+start_child blocks the supervisor process. This is the throughput ceiling. PartitionSupervisor
+exists to solve this. terminate_child also blocks. which_children is O(n) and can OOM with
+large child populations.
+
+Restart intensity is per-supervisor (same sliding window). If any child causes intensity to be
+exceeded the entire supervisor terminates.
+
+Parallel shutdown:
+1. Monitor all children and send exit signals to all of them
+2. Start single shared timer (Shutdown timeout)
+3. Wait for all DOWN messages
+4. Timer fires before all down? kill remaining with exit(P, kill)
+5. Collect errors after all children are down
+
+
+## PartitionSupervisor
+
+Wraps N instances of any supervisor type, routes by caller PID hash. Default N = GOMAXPROCS.
+Exists because DynamicSupervisor and Task.Supervisor are single-process bottlenecks.
+start_child/terminate_child serialize through one mailbox. PartitionSupervisor shards children
+across N independent supervisor instances.
+
+Each partition is a full supervisor with its own restart intensity tracking.
+API surface identical to the wrapped supervisor — transparent to callers.
+
+
+## The Rest of Registry
+
+Local, decentralized, scalable key-value process storage. Not distributed. Automatically cleans
+up entries when registered processes die. Separate from the global process.nameTree — this is
+user-space.
+
+Two key modes:
+- Unique — each key maps to 0 or 1 process. Lookup hits one partition.
+- Duplicate — key maps to multiple processes. Lookup searches all partitions.
+  - partition by key (many topics, few subscribers)
+  - partition by PID (few topics, many subscribers)
+
+Core API: register(key, value), lookup(key), dispatch(key, callback), match/select with
+patterns, update_value (unique only).
+
+Via-tuple integration: GenServer/Supervisor naming through the registry.
+Listeners: notification on register/unregister events.
+Meta: arbitrary metadata on the registry.
+
+Partitioning: default 1 partition. For high concurrency set to schedulers_online() equivalent.
+
+Cleanup: monitor registered processes. Process dies, entries removed. Slightly async (brief
+window where lookups may return stale entries).
+
+Go considerations: CTriE could serve unique keys. Duplicate needs key → []Ref. Sharded
+sync.RWMutex + map may be simpler than ETS emulation. Weak references give automatic cleanup
+but non-deterministic timing. Monitor-based (ExitMsg) gives deterministic removal.
+
+
+## Task
+
+Process for executing a single action. Structured async/await, supervision integration, caller
+tracking. Tasks must be supervised through the init system.
+
+The Task handle:
+- pid — task process
+- ref — monitor reference (message key for result delivery)
+- owner — process that created the task
+
+async/await (linked): Task.async spawns both linked and monitored. Task sends result as
+{ref, result}. Task.await blocks for result (default 5s). Either crashes, both crash.
+Must await or yield — reply message is always sent, ignoring it orphans messages in the
+caller's mailbox.
+
+async_nolink (monitored only): same but only monitored. Caller survives task failure. Requires
+TEMPORARY restart because restarting gives new PID which invalidates the caller's reference.
+Success: {ref, result}. Failure: DOWN message.
+
+yield: non-blocking check for result. Can call repeatedly.
+Pattern: yield(task, timeout) || shutdown(task)
+
+Fire-and-forget: start/start_link. No result, just side effects. Not linked to caller,
+linked to supervisor only.
+
+Streaming: async_stream — process enumerable concurrently. max_concurrency defaults to
+schedulers_online(). ordered: true buffers to maintain input order. Greedy about concurrency.
+
+Caller tracking: $callers chain of PIDs that initiated the task. Distinct from $ancestors
+(supervision hierarchy). Crash logs include callers.
+
+Don't await inside GenServer — blocks the server. Use async_nolink + handle result in HandleInfo.
+
+Task.Supervisor: DynamicSupervisor specialized for tasks. Wraps dynamic supervisor, creates
+task-specific child specs (TEMPORARY restart, 5s shutdown). Provides async, async_nolink,
+start_child as first-class operations.
+
+
+## PubSub
+
+Nice to have. Built on duplicate-mode Registry + dispatch. Processes register as subscribers
+under a topic key, dispatch sends messages to all registered PIDs for that key. Warrants its
+own module for ergonomic API even though it's a Registry use case.
+
+
+## Run as VM / Builder / Both
 
 Run as VM - load the .so file and run the Application interface
 Run as Builder - build the .so file and run the Application interface
-Run as Both - one single command to run the Application interface either to handle building before running when needed
+Run as Both - one single command to run the Application interface either to handle building
+before running when needed
 
-Application Config with Overlays
-Logger setup. Need both log and slog configured from the environment.
-Need to be able to set the log levels
+Go plugin package provides .so loading on Linux. Plugin exports a symbol implementing
+application.Application. Runtime loads, resolves symbol, passes to grts.Boot().
 
-The Rest of Application
-The Rest of StaticSupervisor
-The Rest of DynamicSupervisor
-Actually implement PartitionSupervisor
-The Rest of Registry
-The Rest of GenServer
-Actually implement Task
-Actually implement Agent
+Enables hot-code-loading-adjacent workflows: rebuild plugin, restart VM, new code runs.
+Not true hot code replacement (Erlang code_change) but a practical equivalent for development.
 
-PubSub is a nice to have
 
-Actually implement Node
-Actually implement PID with embedded Node and Change fields
-Implement some form of message serialization IDEALLY SOMETHING LIKE ZERO ALLOC PROTOBUF
-Actually implement Clustering
+## Application Config with Overlays
+
+Layered config for Applications. Base in code, overlaid by environment-specific (dev/staging/prod),
+overlaid by runtime (CLI flags, env vars).
+
+Config available before Application.Start is called. Overlay order:
+code defaults → config file → env vars → CLI flags
+
+May need additional Application callback (Configure?) or pass through StartType.
+Erlang equivalent: application:get_env/set_env for runtime config access.
+
+
+## Node
+
+Existing code: internal/node/
+
+What exists: node identity (atom@host with ParseName), local server (singleton, manages
+connections), remote client (outbound), 3-way HMAC nonce handshake, TLS connections via
+net/rpc, connection management (known/visible/hidden maps).
+
+What's missing:
+- Process-level distributed send: process.Send(remote_pid, msg) routing through node connections
+- Distributed monitor/link
+- Net kernel equivalent: auto-reconnection, node up/down notifications
+- Init system integration: node server should be supervised in the boot tree
+- The RPC goroutines have a TODO for linked process spawns
+
+
+## Message Serialization
+
+Existing: term/term.go using encoding/gob with buffer pooling.
+
+Current direction: gob + Go net/rpc for inter-node transport. Native encoding, no external
+dependencies, handles arbitrary types through registration. No protobuf schema requirement —
+that's not user friendly as a hard requirement for the term system.
+
+If serialization becomes a bottleneck later: gob optimizations (pre-registered types, buffer
+reuse — some already done), Cap'n Proto/FlatBuffers for zero-copy, or custom binary encoding
+for hot-path message types.
+
+
+## Clustering
+
+Existing code: internal/gpmd_2/ (GPMD v2 — RPC on port 4469 with TLS), internal/gpmd/ (GPMD v1
+— JSON over TCP), internal/node/, cmd/gpmd/ (CLI tool).
+
+GPMD v2 supports Register/Unregister/Heartbeat/List/GetByName/GetByHost.
+GPMD v1 uses JSON encoding with action-based protocol.
+CLI: daemon mode, name listing, node registration with heartbeat (60s interval).
+
+What's needed:
+- Distributed process send: route process.Send(remote_pid, msg) through node connections
+- Distributed spawn on remote node
+- Global name registration across all connected nodes
+- Node monitoring: notifications when nodes go up or down
+- Net split handling: partition and rejoin behavior
+- Heartbeat-based liveness: GPMD has it, node server should use it to detect dead connections

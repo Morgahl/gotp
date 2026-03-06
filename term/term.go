@@ -32,6 +32,7 @@ func Encode(ts ...Term) ([]byte, error) {
 		} else if err := enc.Encode(ts[1]); err != nil {
 			return nil, err
 		}
+		return buf.Bytes(), nil
 
 	case 3:
 		if err := enc.Encode(ts[0]); err != nil {
@@ -41,6 +42,7 @@ func Encode(ts ...Term) ([]byte, error) {
 		} else if err := enc.Encode(ts[2]); err != nil {
 			return nil, err
 		}
+		return buf.Bytes(), nil
 
 	case 4:
 		if err := enc.Encode(ts[0]); err != nil {
@@ -52,16 +54,19 @@ func Encode(ts ...Term) ([]byte, error) {
 		} else if err := enc.Encode(ts[3]); err != nil {
 			return nil, err
 		}
-	}
+		return buf.Bytes(), nil
 
-	for _, t := range ts {
-		if err := enc.Encode(t); err != nil {
-			return nil, err
+	default:
+
+		for _, t := range ts {
+			if err := enc.Encode(t); err != nil {
+				return nil, err
+			}
 		}
+		out := make([]byte, buf.Len())
+		copy(out, buf.Bytes())
+		return out, nil
 	}
-	out := make([]byte, buf.Len())
-	copy(out, buf.Bytes())
-	return out, nil
 }
 
 func Decode(data []byte, ts ...Term) error {

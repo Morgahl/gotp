@@ -31,11 +31,15 @@ type NameTree struct {
 }
 
 func NewPIDTree() *PIDTree {
-	return &PIDTree{root: &iNode[uint64]{gen: &generation{}}}
+	root := &iNode[uint64]{}
+	root.gen.Store(&generation{})
+	return &PIDTree{root: root}
 }
 
 func NewNameTree() *NameTree {
-	return &NameTree{root: &iNode[string]{gen: &generation{}}}
+	root := &iNode[string]{}
+	root.gen.Store(&generation{})
+	return &NameTree{root: root}
 }
 
 func (t *PIDTree) Count() int64  { return t.count.Load() }
@@ -43,7 +47,8 @@ func (t *NameTree) Count() int64 { return t.count.Load() }
 
 func (t *PIDTree) Snapshot() *PIDTree {
 	main := t.root.main.Load()
-	newRoot := &iNode[uint64]{gen: &generation{}}
+	newRoot := &iNode[uint64]{}
+	newRoot.gen.Store(&generation{})
 	newRoot.main.Store(main)
 	snap := &PIDTree{root: newRoot}
 	snap.count.Store(t.count.Load())
@@ -52,7 +57,8 @@ func (t *PIDTree) Snapshot() *PIDTree {
 
 func (t *NameTree) Snapshot() *NameTree {
 	main := t.root.main.Load()
-	newRoot := &iNode[string]{gen: &generation{}}
+	newRoot := &iNode[string]{}
+	newRoot.gen.Store(&generation{})
 	newRoot.main.Store(main)
 	snap := &NameTree{root: newRoot}
 	snap.count.Store(t.count.Load())
@@ -60,7 +66,7 @@ func (t *NameTree) Snapshot() *NameTree {
 }
 
 type iNode[K hamtKey] struct {
-	gen  *generation
+	gen  atomic.Pointer[generation]
 	main atomic.Pointer[mainNode[K]]
 }
 
@@ -95,7 +101,7 @@ type collNode[K hamtKey] struct {
 
 func (t *PIDTree) Store(key uint64, val Ref) error {
 	h := pidHash(key)
-	if ctrieInsert(t.root, t.root.gen, h, 0, key, val) {
+	if ctrieInsert(t.root, t.root.gen.Load(), h, 0, key, val) {
 		t.count.Add(1)
 		return nil
 	}
@@ -104,12 +110,12 @@ func (t *PIDTree) Store(key uint64, val Ref) error {
 
 func (t *PIDTree) Load(key uint64) Ref {
 	h := pidHash(key)
-	return ctrieLookup(t.root, t.root.gen, h, 0, key)
+	return ctrieLookup(t.root, t.root.gen.Load(), h, 0, key)
 }
 
 func (t *PIDTree) Delete(key uint64) bool {
 	h := pidHash(key)
-	if ctrieRemove(t.root, t.root.gen, h, 0, key) {
+	if ctrieRemove(t.root, t.root.gen.Load(), h, 0, key) {
 		t.count.Add(-1)
 		return true
 	}
@@ -123,7 +129,7 @@ func (t *PIDTree) Range(f func(uint64, Ref) bool) {
 
 func (t *NameTree) Store(key string, val Ref) error {
 	h := nameHash(key)
-	if ctrieInsert(t.root, t.root.gen, h, 0, key, val) {
+	if ctrieInsert(t.root, t.root.gen.Load(), h, 0, key, val) {
 		t.count.Add(1)
 		return nil
 	}
@@ -132,12 +138,12 @@ func (t *NameTree) Store(key string, val Ref) error {
 
 func (t *NameTree) Load(key string) Ref {
 	h := nameHash(key)
-	return ctrieLookup(t.root, t.root.gen, h, 0, key)
+	return ctrieLookup(t.root, t.root.gen.Load(), h, 0, key)
 }
 
 func (t *NameTree) Delete(key string) bool {
 	h := nameHash(key)
-	if ctrieRemove(t.root, t.root.gen, h, 0, key) {
+	if ctrieRemove(t.root, t.root.gen.Load(), h, 0, key) {
 		t.count.Add(-1)
 		return true
 	}
@@ -174,7 +180,7 @@ func (m *mainNode[K]) compressed() *mainNode[K] {
 func ctrieInsert[K hamtKey](i *iNode[K], gen *generation, h uint64, shift uint, key K, val Ref) bool {
 	for {
 		main := i.main.Load()
-		if i.gen != gen {
+		if i.gen.Load() != gen {
 			main = ctrieCopy(i, gen)
 		}
 		if main == nil || main.kind == kind_EMPTY {
@@ -227,7 +233,8 @@ func ctrieInsert[K hamtKey](i *iNode[K], gen *generation, h uint64, shift uint, 
 			word := bitIdx >> 6
 			mask := uint64(1) << (bitIdx & 63)
 			if main.bitmap[word]&mask == 0 {
-				child := &iNode[K]{gen: gen}
+				child := &iNode[K]{}
+				child.gen.Store(gen)
 				child.main.Store(&mainNode[K]{kind: kind_LEAF, leaf: &leafNode[K]{h, key, val}})
 				idx := getIndex(main.bitmap, bitIdx)
 				newChildren := make([]*iNode[K], len(main.children)+1)
@@ -250,7 +257,7 @@ func ctrieInsert[K hamtKey](i *iNode[K], gen *generation, h uint64, shift uint, 
 
 func ctrieLookup[K hamtKey](i *iNode[K], gen *generation, h uint64, shift uint, key K) Ref {
 	main := i.main.Load()
-	if i.gen != gen {
+	if i.gen.Load() != gen {
 		main = ctrieCopy(i, gen)
 	}
 	if main == nil {
@@ -284,7 +291,7 @@ func ctrieLookup[K hamtKey](i *iNode[K], gen *generation, h uint64, shift uint, 
 func ctrieRemove[K hamtKey](i *iNode[K], gen *generation, h uint64, shift uint, key K) bool {
 	for {
 		main := i.main.Load()
-		if i.gen != gen {
+		if i.gen.Load() != gen {
 			main = ctrieCopy(i, gen)
 		}
 		if main == nil || main.kind == kind_EMPTY {
@@ -340,8 +347,14 @@ func ctrieRemove[K hamtKey](i *iNode[K], gen *generation, h uint64, shift uint, 
 			if !ctrieRemove(child, gen, h, shift+hamt_BITS, key) {
 				return false
 			}
-			childMain := child.main.Load()
-			if childMain != nil && childMain.kind == kind_EMPTY {
+			// Branch cleanup: retry CAS until the dead branch is removed or
+			// the node has been replaced by another operation.
+			for {
+				childMain := child.main.Load()
+				if childMain == nil || childMain.kind != kind_EMPTY {
+					break
+				}
+				idx := getIndex(main.bitmap, bitIdx)
 				newBitmap := main.bitmap
 				newBitmap[word] &= ^mask
 				var newMain *mainNode[K]
@@ -349,11 +362,27 @@ func ctrieRemove[K hamtKey](i *iNode[K], gen *generation, h uint64, shift uint, 
 					newMain = &mainNode[K]{kind: kind_EMPTY}
 				} else {
 					newChildren := make([]*iNode[K], len(main.children)-1)
-					copy(newChildren[:childIdx], main.children[:childIdx])
-					copy(newChildren[childIdx:], main.children[childIdx+1:])
+					copy(newChildren[:idx], main.children[:idx])
+					copy(newChildren[idx:], main.children[idx+1:])
 					newMain = (&mainNode[K]{kind: kind_BRANCH, bitmap: newBitmap, children: newChildren}).compressed()
 				}
-				i.main.CompareAndSwap(main, newMain)
+				if i.main.CompareAndSwap(main, newMain) {
+					break
+				}
+				// Reload main and re-evaluate; if someone else already
+				// updated the node we stop the cleanup attempt.
+				main = i.main.Load()
+				if main == nil || main.kind != kind_BRANCH {
+					break
+				}
+				if main.bitmap[word]&mask == 0 {
+					break // already cleaned up by another goroutine
+				}
+				// Verify the child at the recomputed index is still our target.
+				newIdx := getIndex(main.bitmap, bitIdx)
+				if newIdx >= len(main.children) || main.children[newIdx] != child {
+					break
+				}
 			}
 			return true
 		}
@@ -387,14 +416,16 @@ func ctrieTraverse[K hamtKey](i *iNode[K], f func(K, Ref) bool) bool {
 func ctrieCopy[K hamtKey](i *iNode[K], gen *generation) *mainNode[K] {
 	main := i.main.Load()
 	i.main.Store(main)
-	i.gen = gen
+	i.gen.Store(gen)
 	return main
 }
 
 func ctrieJoin[K hamtKey](gen *generation, oldLeaf, newLeaf *leafNode[K], shift uint) *mainNode[K] {
 	os, ns := uint((oldLeaf.hash>>shift)&hamt_MASK), uint((newLeaf.hash>>shift)&hamt_MASK)
 	if os != ns {
-		inOld, inNew := &iNode[K]{gen: gen}, &iNode[K]{gen: gen}
+		inOld, inNew := &iNode[K]{}, &iNode[K]{}
+		inOld.gen.Store(gen)
+		inNew.gen.Store(gen)
 		inOld.main.Store(&mainNode[K]{kind: kind_LEAF, leaf: oldLeaf})
 		inNew.main.Store(&mainNode[K]{kind: kind_LEAF, leaf: newLeaf})
 		children := make([]*iNode[K], 2)
@@ -408,7 +439,8 @@ func ctrieJoin[K hamtKey](gen *generation, oldLeaf, newLeaf *leafNode[K], shift 
 		bm[ns>>6] |= (1 << (ns & 63))
 		return &mainNode[K]{kind: kind_BRANCH, bitmap: bm, children: children}
 	}
-	childINode := &iNode[K]{gen: gen}
+	childINode := &iNode[K]{}
+	childINode.gen.Store(gen)
 	childINode.main.Store(ctrieJoin(gen, oldLeaf, newLeaf, shift+hamt_BITS))
 	var bm [4]uint64
 	bm[os>>6] |= (1 << (os & 63))
@@ -418,7 +450,9 @@ func ctrieJoin[K hamtKey](gen *generation, oldLeaf, newLeaf *leafNode[K], shift 
 func ctrieJoinLeafAndColl[K hamtKey](gen *generation, coll *collNode[K], leaf *leafNode[K], shift uint) *mainNode[K] {
 	os, ns := uint((coll.hash>>shift)&hamt_MASK), uint((leaf.hash>>shift)&hamt_MASK)
 	if os != ns {
-		inColl, inLeaf := &iNode[K]{gen: gen}, &iNode[K]{gen: gen}
+		inColl, inLeaf := &iNode[K]{}, &iNode[K]{}
+		inColl.gen.Store(gen)
+		inLeaf.gen.Store(gen)
 		inColl.main.Store(&mainNode[K]{kind: kind_COLLISION, coll: coll})
 		inLeaf.main.Store(&mainNode[K]{kind: kind_LEAF, leaf: leaf})
 		children := make([]*iNode[K], 2)
@@ -432,7 +466,8 @@ func ctrieJoinLeafAndColl[K hamtKey](gen *generation, coll *collNode[K], leaf *l
 		bm[ns>>6] |= (1 << (ns & 63))
 		return &mainNode[K]{kind: kind_BRANCH, bitmap: bm, children: children}
 	}
-	childINode := &iNode[K]{gen: gen}
+	childINode := &iNode[K]{}
+	childINode.gen.Store(gen)
 	childINode.main.Store(ctrieJoinLeafAndColl(gen, coll, leaf, shift+hamt_BITS))
 	var bm [4]uint64
 	bm[os>>6] |= (1 << (os & 63))

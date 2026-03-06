@@ -42,7 +42,7 @@ func (r Recovered) String() string {
 	return b.String()
 }
 
-// Recover expects the first arguement to be the result of calling `recover()`. If the result is nil, it returns the
+// Recover expects the first argument to be the result of calling `recover()`. If the result is nil, it returns the
 // provided error. If the result is not nil, it constructs a [Recovered] error containing the panic information merged
 // with the provided message, error, and the stack trace of the point of recovery.
 func Recover(r any, message string, err error) error {
@@ -57,6 +57,9 @@ func Recover(r any, message string, err error) error {
 		rec.err = fmt.Errorf("%s: panic error: %w", message, v)
 	default:
 		rec.err = fmt.Errorf("%s: panic unknown: %v", message, v)
+	}
+	if err != nil {
+		rec.err = errors.Join(rec.err, err)
 	}
 	return rec
 }
@@ -75,6 +78,6 @@ func (r Recovered) LogValue() slog.Value {
 	if r.err != nil {
 		attrs = append(attrs, slog.Any("err", r.err))
 	}
-	attrs = append(attrs, slog.Any("recover", r.err))
+	attrs = append(attrs, slog.String("message", r.message))
 	return slog.GroupValue(attrs...)
 }

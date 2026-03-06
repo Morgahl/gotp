@@ -16,10 +16,10 @@ import (
 )
 
 const (
-	MIN_DURATION      = 1 * time.Second
-	MID_LOW_DURATION  = 2 * time.Second
-	MID_HIGH_DURATION = 3 * time.Second
-	MAX_DURATION      = 5 * time.Second
+	MIN_DURATION      = 100 * time.Millisecond
+	MID_LOW_DURATION  = 200 * time.Millisecond
+	MID_HIGH_DURATION = 300 * time.Millisecond
+	MAX_DURATION      = 500 * time.Millisecond
 
 	atom_GET_WORK gotp.Atom = "get_work"
 )
@@ -116,10 +116,8 @@ func (f *Crew) HandleInfo(pctx process.Context, msg term.Term) (gen_server.Conti
 		if m.PID == pctx.PID() {
 			return gen_server.Stop[term.Term](m.Reason), nil
 		}
-	default:
-		return gen_server.NoCont[term.Term](), fmt.Errorf("unexpected message: %T", m)
 	}
-	return gen_server.NoCont[term.Term](), nil
+	return gen_server.NoCont[term.Term](), fmt.Errorf("unexpected message: %T", msg)
 }
 
 func (f *Crew) Terminate(pctx process.Context, reason error) error {

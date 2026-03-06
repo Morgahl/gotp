@@ -21,7 +21,7 @@ type RunFn func(Context) error
 type process struct {
 	pid         PID
 	name        gotp.Atom
-	flags       ProcessFlags
+	flags       Flags
 	state       processState
 	exitReason  error
 	deregHandle func()
@@ -118,7 +118,6 @@ func (p *process) run(runFn RunFn) {
 		for range p.signalChan {
 			// drain the channel
 		}
-		p.signalChan = nil
 		p.state = EXITED_STATE
 	}()
 	if err := runFn(pctx); err != nil {
@@ -178,14 +177,14 @@ func (p *process) garbageCollect() {
 	p.messageSkips = p.messageSkips[:0]
 }
 
-// this must always be called while the stateLock is at least read-locked and the mailboxLock is write-locked
+// must be called from the process's own goroutine
 func (p *process) pushMessage(m term.Term) {
 	if p.state == STARTED_STATE {
 		p.mailbox = append(p.mailbox, m)
 	}
 }
 
-// this must always be called while the stateLock is at least read-locked and the mailboxLock is write-locked
+// must be called from the process's own goroutine
 func (p *process) linkRequest(re RequestMsg[Ref]) {
 	p.links.push(re.From, re.Message)
 	re.Ref.send(linkReplySignal(ReplyMsg[Ref]{
@@ -199,17 +198,17 @@ func (p *process) linkReply(re ReplyMsg[Ref]) {
 	p.links.push(re.From, re.Message)
 }
 
-// this must always be called while the stateLock is at least read-locked and the mailboxLock is write-locked
+// must be called from the process's own goroutine
 func (p *process) unlink(re RequestMsg[Ref]) {
 	p.links.remove(re.From, re.Message)
 }
 
-// this must always be called while the stateLock is at least read-locked and the mailboxLock is write-locked
+// must be called from the process's own goroutine
 func (p *process) monitor(re RequestMsg[Ref]) {
 	p.monitors.push(re.From, re.Message)
 }
 
-// this must always be called while the stateLock is at least read-locked and the mailboxLock is write-locked
+// must be called from the process's own goroutine
 func (p *process) deMonitor(re RequestMsg[Ref]) {
 	p.monitors.remove(re.From, re.Message)
 }
@@ -263,14 +262,14 @@ func (p *process) handleExitSignal(f signalFlags, e exitSig) {
 	}
 }
 
-// this must always be called while the stateLock is at least read-locked and the mailboxLock is write-locked
+// must be called from the process's own goroutine
 func (p *process) down(down DownMsg) {
 	if p.monitors.contains(down.From, down.Ref) {
 		p.pushMessage(down)
 	}
 }
 
-// this must always be called while the stateLock is at least read-locked and the mailboxLock is write-locked
+// must be called from the process's own goroutine
 func (p *process) aliveRequest(req RequestMsg[term.Term]) {
 	var err error
 	if p.state != STARTED_STATE {
@@ -284,12 +283,12 @@ func (p *process) aliveRequest(req RequestMsg[term.Term]) {
 	}
 }
 
-// this must always be called while the stateLock is at least read-locked and the mailboxLock is write-locked
+// must be called from the process's own goroutine
 func (p *process) aliveReply(r ReplyMsg[error]) {
 	p.pushMessage(r)
 }
 
-// handleSignal is always called from a functions that has the mailboxLock write-locked as well as the stateLock read-locked.
+// handleSignal must be called from the process's own goroutine.
 func (p *process) handleSignal(s signal[term.Term]) {
 	assert.AssertF(p.state == STARTING_STATE || p.state == STARTED_STATE, "process.handleSignal: unexpected process state %s for signal: %#v", p.state, s)
 	switch s._type {

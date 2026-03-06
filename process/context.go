@@ -52,7 +52,7 @@ func (c *Context) TrapExit(trap bool) {
 	}
 }
 
-func (c *Context) UpdateFlags(fn func(ProcessFlags) ProcessFlags) {
+func (c *Context) UpdateFlags(fn func(Flags) Flags) {
 	c.process.flags = fn(c.process.flags)
 }
 

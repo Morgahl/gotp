@@ -111,7 +111,7 @@ func (s *state) generate() {
 	s.next = true
 	s.workItem = &workItem{
 		id:   gotp.Atom(fmt.Sprintf("work-%d", s.generated)),
-		need: uint64(rand.Intn(56) + 5),
+		need: uint64(rand.Intn(6) + 5),
 	}
 }
 
@@ -127,24 +127,37 @@ func (s *state) receivedProcessed(work *workItem) (log bool) {
 	return false
 }
 
+// func (s *state) stepNextLog() {
+// 	if s.wanted == 0 || s.processed >= s.wanted {
+// 		s.nextLog = s.wanted + 1
+// 		return
+// 	}
+// 	base := s.processed
+// 	pos := float64(s.processed) / float64(s.wanted)
+// 	if pos < 0 {
+// 		pos = 0
+// 	} else if pos > 1 {
+// 		pos = 1
+// 	}
+// 	maxI := float64(s.wanted) * 0.01
+// 	minI := 1.0
+// 	easeIn := math.Pow(pos, 4.0)
+// 	interval := maxI - (maxI-minI)*easeIn
+// 	step := uint64(math.Max(1, math.Round(interval)))
+// 	s.nextLog = base + step
+// }
+
 func (s *state) stepNextLog() {
+	// we step by every 0.01% unless e are less then 10K work items in which case we step by every 100
 	if s.wanted == 0 || s.processed >= s.wanted {
 		s.nextLog = s.wanted + 1
 		return
 	}
-	base := s.processed
-	pos := float64(s.processed) / float64(s.wanted)
-	if pos < 0 {
-		pos = 0
-	} else if pos > 1 {
-		pos = 1
+	step := uint64(math.Max(1, math.Round(float64(s.wanted)*0.01)))
+	if s.wanted <= 10000 {
+		step = 100
 	}
-	maxI := float64(s.wanted) * 0.01
-	minI := 1.0
-	easeIn := math.Pow(pos, 4.0)
-	interval := maxI - (maxI-minI)*easeIn
-	step := uint64(math.Max(1, math.Round(interval)))
-	s.nextLog = base + step
+	s.nextLog = s.processed + step
 }
 
 type workItem struct {

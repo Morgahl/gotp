@@ -54,6 +54,13 @@ func receive[M term.Term, D any](pctx Context, done <-chan D) (_ M, _ bool, reas
 	var readOffset int
 	var messageSkipOffset int
 	defer pctx.process.maybeGarbageCollect()
+	// // we loop through signals before processing messages to ensure that we handle any pending signals (like exits)
+	// // before processing any messages, this ensures that we don't process messages when we're already exiting, and
+	// // that we handle exit signals as soon as possible to avoid doing unnecessary work when we're already exiting.
+	// // Additionally we only loop here a maxiumm of cap(pctx.process.signalChan)*2 + 1 times with a default
+	// // fallthorugh if empty to ensure that we don't get stuck in this loop if we're receiving signals faster than
+	// // we're processing them.
+	// for range cap(pctx.process.signalChan)*2 + 1 {
 	switch pctx.process.state {
 	case STARTING_STATE, STARTED_STATE:
 		select {
@@ -71,6 +78,7 @@ func receive[M term.Term, D any](pctx Context, done <-chan D) (_ M, _ bool, reas
 	case EXITING_STATE, EXITED_STATE:
 		goto EXIT
 	}
+	// }
 
 PROCESS_MESSAGES:
 	switch pctx.process.state {

@@ -17,7 +17,7 @@ type server[
 }
 
 func (s *server[I, Cl, R, Cs, Ct]) setupProc(initArg I, opts ...process.SpawnOpt) (process.Ref, <-chan error) {
-	sig := make(chan error)
+	sig := make(chan error, 1)
 	ref, err := process.Spawn(s.loop(initArg, sig), opts...)
 	if err != nil {
 		sig <- err
@@ -28,7 +28,7 @@ func (s *server[I, Cl, R, Cs, Ct]) setupProc(initArg I, opts ...process.SpawnOpt
 }
 
 func (s *server[I, Cl, R, Cs, Ct]) setupLinkedProc(initArg I, linked process.Ref, opts ...process.SpawnOpt) (process.Ref, <-chan error) {
-	sig := make(chan error)
+	sig := make(chan error, 1)
 	ref, err := process.SpawnLink(s.loop(initArg, sig), linked, opts...)
 	if err != nil {
 		sig <- err
@@ -89,19 +89,10 @@ func (s *server[I, Cl, R, Cs, Ct]) loop(initArg I, sig chan error) process.RunFn
 				// We have a synchronous call and a chan to close after conditionally sending a
 				// response back to the caller.
 				resp, cont, reason = s.serverable.HandleCall(pctx, msg.req, msg.from)
-				if reason == nil {
-					switch resp._type {
-					case NO_REPLY:
-						// We have been asked to not send a response back to the caller so just close
-						// the resp chan.
-						close(msg.resp)
-
-					case REPLY:
-						// We have been asked to send a response back to the caller.
-						msg.resp <- resp.resp
-						close(msg.resp)
-					}
+				if resp._type == REPLY && reason == nil {
+					msg.resp <- resp.resp
 				}
+				close(msg.resp)
 
 			case cast[Cs]:
 				// We have an asynchronous call
