@@ -3,28 +3,39 @@ package gen_server
 import (
 	"github.com/Morgahl/gotp/dbg"
 	"github.com/Morgahl/gotp/process"
+	"github.com/Morgahl/gotp/term"
 )
 
 type server[
 	I any,
-	Cl process.Message,
-	R process.Message,
-	Cs process.Message,
-	Ct process.Message,
+	Cl term.Term,
+	R term.Term,
+	Cs term.Term,
+	Ct term.Term,
 ] struct {
 	serverable GenServer[I, Cl, R, Cs, Ct]
 }
 
 func (s *server[I, Cl, R, Cs, Ct]) setupProc(initArg I, opts ...process.SpawnOpt) (process.Ref, <-chan error) {
-	sig := make(chan error)
-	pid := process.Spawn(s.loop(initArg, sig), opts...)
-	return pid, sig
+	sig := make(chan error, 1)
+	ref, err := process.Spawn(s.loop(initArg, sig), opts...)
+	if err != nil {
+		sig <- err
+		close(sig)
+		return process.Ref{}, sig
+	}
+	return ref, sig
 }
 
 func (s *server[I, Cl, R, Cs, Ct]) setupLinkedProc(initArg I, linked process.Ref, opts ...process.SpawnOpt) (process.Ref, <-chan error) {
-	sig := make(chan error)
-	pid := process.SpawnLink(s.loop(initArg, sig), linked, opts...)
-	return pid, sig
+	sig := make(chan error, 1)
+	ref, err := process.SpawnLink(s.loop(initArg, sig), linked, opts...)
+	if err != nil {
+		sig <- err
+		close(sig)
+		return process.Ref{}, sig
+	}
+	return ref, sig
 }
 
 func (s *server[I, Cl, R, Cs, Ct]) loop(initArg I, sig chan error) process.RunFn {
@@ -59,7 +70,7 @@ func (s *server[I, Cl, R, Cs, Ct]) loop(initArg I, sig chan error) process.RunFn
 				continue
 			}
 
-			msg, ok, err := process.ReceiveWithTimeout[process.Message](pctx, 0)
+			msg, ok, err := process.ReceiveWithTimeout[term.Term](pctx, 0)
 			if err != nil {
 				return err
 			} else if !ok {
@@ -78,19 +89,10 @@ func (s *server[I, Cl, R, Cs, Ct]) loop(initArg I, sig chan error) process.RunFn
 				// We have a synchronous call and a chan to close after conditionally sending a
 				// response back to the caller.
 				resp, cont, reason = s.serverable.HandleCall(pctx, msg.req, msg.from)
-				if reason == nil {
-					switch resp.atom {
-					case NO_REPLY:
-						// We have been asked to not send a response back to the caller so just close
-						// the resp chan.
-						close(msg.resp)
-
-					case REPLY:
-						// We have been asked to send a response back to the caller.
-						msg.resp <- resp.resp
-						close(msg.resp)
-					}
+				if resp._type == REPLY && reason == nil {
+					msg.resp <- resp.resp
 				}
+				close(msg.resp)
 
 			case cast[Cs]:
 				// We have an asynchronous call

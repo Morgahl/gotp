@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	HEARTHBEAT_INTERVAL = time.Minute
+	HEARTBEAT_INTERVAL = time.Minute
 	RECONNECT_INTERVAL  = 5 * time.Second
 )
 
@@ -40,7 +40,7 @@ var (
 		"kill", false,
 		"kills the currently running gpmd; only occurs if the database is empty")
 
-	Regisiter = flag.String(
+	Register = flag.String(
 		"register", "",
 		"registers a node with the given name@address format",
 	)
@@ -118,7 +118,7 @@ func main() {
 	case *Kill:
 		kill(ctx)
 
-	case *Regisiter != "":
+	case *Register != "":
 		for {
 			select {
 			case <-ctx.Done():
@@ -192,7 +192,7 @@ func register(ctx ctx.Cancellable) (err error) {
 	}
 	defer client.Close()
 
-	node, err := gpmd.NodeFromString(*Regisiter)
+	node, err := gpmd.NodeFromString(*Register)
 	if err != nil {
 		slog.Error("invalid node", "error", err)
 		return
@@ -220,7 +220,7 @@ func register(ctx ctx.Cancellable) (err error) {
 		slog.Info("UNREGISTERED")
 	}()
 
-	heartbeat := time.NewTicker(HEARTHBEAT_INTERVAL)
+	heartbeat := time.NewTicker(HEARTBEAT_INTERVAL)
 	defer heartbeat.Stop()
 	for {
 		select {

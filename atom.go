@@ -3,6 +3,7 @@ package gotp
 import (
 	"encoding/gob"
 	"log/slog"
+	"unsafe"
 )
 
 func init() {
@@ -12,13 +13,11 @@ func init() {
 type Atom string
 
 func (a Atom) String() string {
-	// return unsafe.String(unsafe.StringData(string(a)), len(a))
-	return string(a)
+	return unsafe.String(unsafe.StringData(string(a)), len(a))
 }
 
 func (a Atom) Error() string {
-	// return a.String()
-	return string(a)
+	return a.String()
 }
 
 func (a Atom) Is(err error) bool {
@@ -27,6 +26,5 @@ func (a Atom) Is(err error) bool {
 }
 
 func (a Atom) LogValue() slog.Value {
-	// return slog.StringValue(a.String())
-	return slog.StringValue(string(a))
+	return slog.StringValue(a.String())
 }

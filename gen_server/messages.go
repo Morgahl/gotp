@@ -5,6 +5,7 @@ import (
 	"log/slog"
 
 	"github.com/Morgahl/gotp/process"
+	"github.com/Morgahl/gotp/term"
 )
 
 type respEnum uint8
@@ -15,20 +16,20 @@ const (
 )
 
 type Response[R any] struct {
-	atom respEnum
-	resp R
+	_type respEnum
+	resp  R
 }
 
 func NoReply[R any]() Response[R] {
-	return Response[R]{atom: NO_REPLY}
+	return Response[R]{_type: NO_REPLY}
 }
 
 func Reply[R any](resp R) Response[R] {
-	return Response[R]{atom: REPLY, resp: resp}
+	return Response[R]{_type: REPLY, resp: resp}
 }
 
 func (r Response[R]) IsReply() (R, bool) {
-	if r.atom == REPLY {
+	if r._type == REPLY {
 		return r.resp, true
 	}
 	var zero R
@@ -36,7 +37,7 @@ func (r Response[R]) IsReply() (R, bool) {
 }
 
 func (r Response[R]) IsNoReply() bool {
-	return r.atom == NO_REPLY
+	return r._type == NO_REPLY
 }
 
 type contAtom uint8
@@ -64,13 +65,13 @@ func Stop[C any](reason C) Continue[C] {
 	return Continue[C]{atom: STOP, arg: reason}
 }
 
-type call[M process.Message, R process.Message] struct {
+type call[M term.Term, R term.Term] struct {
 	from process.PID
 	req  M
 	resp chan R
 }
 
-func CallMsg[M process.Message, R process.Message](from process.PID, req M) call[M, R] {
+func CallMsg[M term.Term, R term.Term](from process.PID, req M) call[M, R] {
 	return call[M, R]{from: from, req: req, resp: make(chan R, 1)}
 }
 
@@ -82,11 +83,11 @@ func (c call[M, R]) LogValue() slog.Value {
 	return slog.StringValue(c.String())
 }
 
-type cast[M process.Message] struct {
+type cast[M term.Term] struct {
 	req M
 }
 
-func CastMsg[M process.Message](req M) cast[M] {
+func CastMsg[M term.Term](req M) cast[M] {
 	return cast[M]{req: req}
 }
 

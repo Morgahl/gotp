@@ -1,4 +1,4 @@
-package pid
+package process
 
 import (
 	"encoding/binary"
@@ -12,10 +12,6 @@ import (
 
 func init() {
 	gob.Register(PID{})
-}
-
-type PID struct {
-	raw uint64
 }
 
 const (
@@ -32,6 +28,10 @@ const (
 	ID_MASK         = (1 << ID_BITS) - 1
 )
 
+type PID struct {
+	raw uint64
+}
+
 func NewPID(nodeID uint16, id uint64, serial uint8) PID {
 	raw := (uint64(nodeID) << NODE_INDEX_SHIFT) |
 		(uint64(serial) << SERIAL_SHIFT) |
@@ -39,7 +39,7 @@ func NewPID(nodeID uint16, id uint64, serial uint8) PID {
 	return PID{raw: raw}
 }
 
-func parse(pidStr string) PID {
+func Parse(pidStr string) PID {
 	var nodeID uint16
 	var id uint64
 	var serial uint8
@@ -50,7 +50,7 @@ func parse(pidStr string) PID {
 	return NewPID(nodeID, id, serial)
 }
 
-func Zero() PID {
+func PIDZero() PID {
 	return PID{}
 }
 
@@ -70,6 +70,14 @@ func (p PID) NodeID() uint16 {
 	return uint16((p.raw >> NODE_INDEX_SHIFT) & NODE_INDEX_MASK)
 }
 
+func (p PID) Local() bool {
+	return p.NodeID() == 0
+}
+
+func (p PID) Remote() bool {
+	return p.NodeID() != 0
+}
+
 func (p PID) String() string {
 	return fmt.Sprintf("<%d.%d.%d>", p.NodeID(), p.ID(), p.Serial())
 }
@@ -82,13 +90,13 @@ func (p PID) LogValue() slog.Value {
 	return slog.StringValue(p.String())
 }
 
-func (p PID) MarshalBinary() ([]byte, error) {
+func (p PID) GobEncode() ([]byte, error) {
 	var buf [binary.MaxVarintLen64]byte
 	n := binary.PutUvarint(buf[:], p.raw)
 	return buf[:n:n], nil
 }
 
-func (p *PID) UnmarshalBinary(data []byte) error {
+func (p *PID) GobDecode(data []byte) error {
 	raw, err := binary.ReadUvarint(newByteReader(data))
 	if err == nil {
 		p.raw = raw
@@ -96,7 +104,7 @@ func (p *PID) UnmarshalBinary(data []byte) error {
 	return err
 }
 
-func Compare(a, b PID) int {
+func ComparePID(a, b PID) int {
 	if a.raw < b.raw {
 		return -1
 	} else if a.raw > b.raw {
@@ -124,7 +132,7 @@ func (br *byteReader) ReadByte() (byte, error) {
 func (br *byteReader) Read(p []byte) (n int, err error) {
 	n = copy(p, *br)
 	*br = (*br)[n:]
-	if n == len(p) {
+	if len(*br) == 0 {
 		err = io.EOF
 	}
 	return n, err

@@ -27,7 +27,7 @@ func NewServer(ctx ctx.Cancellable) *Server {
 	gpmd := New(ctx)
 	assert.Nil(rpcServer.Register(gpmd), "Failed to register GPMD")
 	nonce := assert.OkF(icrypto.GenerateNonce())("Failed to generate nonce: %s")
-	cert := assert.OkF(icrypto.GenerateSelfSignedCert("gpmd", gotp.Atom(string(nonce[:]))))("Failed to generate self-signed certificate: %s")
+	cert := assert.OkF(icrypto.GenerateSelfSignedCert("gpmd", gotp.Atom(nonce[:])))("Failed to generate self-signed certificate: %s")
 
 	s := &Server{
 		ctx:       ctx,

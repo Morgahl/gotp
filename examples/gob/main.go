@@ -8,8 +8,9 @@ import (
 	"time"
 
 	"github.com/Morgahl/gotp"
-	"github.com/Morgahl/gotp/internal/pid"
+	"github.com/Morgahl/gotp/assert"
 	"github.com/Morgahl/gotp/process"
+	"github.com/Morgahl/gotp/term"
 )
 
 func init() {
@@ -34,14 +35,14 @@ func main() {
 	validate[uint64](&buf, enc, dec, math.MaxUint64)
 	validate(&buf, enc, dec, gotp.Atom("world"))
 	validate(&buf, enc, dec, gotp.Atom("test@localhost"))
-	validate(&buf, enc, dec, pid.NewPID(math.MaxUint16, math.MaxUint64, math.MaxUint8))
-	validate(&buf, enc, dec, pid.NewPID(0, 12345678, 0))
-	validate(&buf, enc, dec, pid.NewPID(0, 0, 0))
+	validate(&buf, enc, dec, process.NewPID(math.MaxUint16, math.MaxUint64, math.MaxUint8))
+	validate(&buf, enc, dec, process.NewPID(0, 12345678, 0))
+	validate(&buf, enc, dec, process.NewPID(0, 0, 0))
 	validate(&buf, enc, dec, Vec3[gotp.Atom]{X: 1, Y: 2, Z: 3, t: "secret"})
 	validate(&buf, enc, dec, Vec3[gotp.Atom]{X: 7, Y: 8, Z: 9, t: "new secret"})
-	validate(&buf, enc, dec, Vec3[process.PID]{X: 7, Y: 8, Z: 9, t: pid.NewPID(math.MaxUint16, math.MaxUint64, math.MaxUint8)})
-	validate(&buf, enc, dec, Vec3[process.PID]{X: 7, Y: 8, Z: 9, t: pid.NewPID(0, 12345678, 0)})
-	validate(&buf, enc, dec, Vec3[process.PID]{X: 0, Y: 0, Z: 0, t: pid.NewPID(0, 0, 0)})
+	validate(&buf, enc, dec, Vec3[process.PID]{X: 7, Y: 8, Z: 9, t: process.NewPID(math.MaxUint16, math.MaxUint64, math.MaxUint8)})
+	validate(&buf, enc, dec, Vec3[process.PID]{X: 7, Y: 8, Z: 9, t: process.NewPID(0, 12345678, 0)})
+	validate(&buf, enc, dec, Vec3[process.PID]{X: 0, Y: 0, Z: 0, t: process.NewPID(0, 0, 0)})
 	took := time.Since(start)
 	fmt.Printf("All tests passed in %s\n", took)
 }
@@ -68,7 +69,7 @@ ENCODE:
 	for decCount := 0; decCount <= count; decCount++ {
 		dec.Decode(&afterT)
 	}
-	// assert.EqualF(t, afterT, "decoded value does not match original: before=%v after=%v")
+	assert.EqualF(t, afterT, "decoded value does not match original: before=%v after=%v")
 	tookDec := time.Since(startDec)
 	avgEnd := tookEnc / time.Duration(count)
 	avgDec := tookDec / time.Duration(count)
@@ -92,31 +93,9 @@ func (v Vec3[T]) GoString() string {
 }
 
 func (v Vec3[T]) GobEncode() ([]byte, error) {
-	var buf bytes.Buffer
-	enc := gob.NewEncoder(&buf)
-	if err := enc.Encode(&v.X); err != nil {
-		return nil, err
-	} else if err := enc.Encode(&v.Y); err != nil {
-		return nil, err
-	} else if err := enc.Encode(&v.Z); err != nil {
-		return nil, err
-	} else if err := enc.Encode(&v.t); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
+	return term.Encode(v.X, v.Y, v.Z, v.t)
 }
 
 func (v *Vec3[T]) GobDecode(data []byte) error {
-	buf := bytes.NewBuffer(data)
-	dec := gob.NewDecoder(buf)
-	if err := dec.Decode(&v.X); err != nil {
-		return err
-	} else if err := dec.Decode(&v.Y); err != nil {
-		return err
-	} else if err := dec.Decode(&v.Z); err != nil {
-		return err
-	} else if err := dec.Decode(&v.t); err != nil {
-		return err
-	}
-	return nil
+	return term.Decode(data, &v.X, &v.Y, &v.Z, &v.t)
 }

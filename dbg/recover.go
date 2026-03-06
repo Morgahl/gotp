@@ -15,42 +15,61 @@ var (
 type Recovered struct {
 	message string
 	err     error
-	r       error
 	stack   []byte
 }
 
-// Recover expects the first arguement to be the result of calling `recover()`. If the result is nil, it returns the
+const thrownFmt = `
+%s
+
+recovery message:
+%s
+
+recovery stack:
+%s
+`
+
+func (r Recovered) String() string {
+	if thrown, ok := r.err.(Thrown); ok {
+		return fmt.Sprintf(thrownFmt, thrown, r.message, string(r.stack))
+	}
+
+	var b strings.Builder
+	if r.message != "" {
+		fmt.Fprintf(&b, "%s\n", r.message)
+	}
+	fmt.Fprintf(&b, "%v\n\n", r.err)
+	b.Write(r.stack)
+	return b.String()
+}
+
+// Recover expects the first argument to be the result of calling `recover()`. If the result is nil, it returns the
 // provided error. If the result is not nil, it constructs a [Recovered] error containing the panic information merged
 // with the provided message, error, and the stack trace of the point of recovery.
 func Recover(r any, message string, err error) error {
 	if r == nil {
 		return err
 	}
-	rec := Recovered{message: message, err: err, stack: debug.Stack()}
+	rec := Recovered{message: message, stack: debug.Stack()}
 	switch v := r.(type) {
 	case Thrown:
-		rec.r = v
+		rec.err = v
 	case error:
-		rec.r = fmt.Errorf("%s: panic error: %w", message, v)
+		rec.err = fmt.Errorf("%s: panic error: %w", message, v)
 	default:
-		rec.r = fmt.Errorf("%s: panic unknown: %v", message, v)
+		rec.err = fmt.Errorf("%s: panic unknown: %v", message, v)
+	}
+	if err != nil {
+		rec.err = errors.Join(rec.err, err)
 	}
 	return rec
 }
 
 func (r Recovered) Error() string {
-	var b strings.Builder
-	if r.err == nil {
-		fmt.Fprintf(&b, "Recovered{%v", r.r)
-	} else {
-		fmt.Fprintf(&b, "Recovered{%v, %v", r.err, r.r)
-	}
-	b.WriteByte('}')
-	return b.String()
+	return r.String()
 }
 
 func (r Recovered) Is(err error) bool {
-	return errors.Is(r.err, err) || errors.Is(r.r, err)
+	return errors.Is(r.err, err)
 }
 
 func (r Recovered) LogValue() slog.Value {
@@ -59,6 +78,6 @@ func (r Recovered) LogValue() slog.Value {
 	if r.err != nil {
 		attrs = append(attrs, slog.Any("err", r.err))
 	}
-	attrs = append(attrs, slog.Any("recover", r.r))
+	attrs = append(attrs, slog.String("message", r.message))
 	return slog.GroupValue(attrs...)
 }

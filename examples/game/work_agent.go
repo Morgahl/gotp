@@ -1,9 +1,12 @@
 package game
 
 import (
+	"expvar"
 	"fmt"
 	"log/slog"
+	"math"
 	"math/rand"
+	"runtime"
 	"time"
 
 	"github.com/Morgahl/gotp"
@@ -11,6 +14,26 @@ import (
 	"github.com/Morgahl/gotp/process"
 	"github.com/Morgahl/gotp/supervisor"
 )
+
+type Metrics struct {
+	Generated uint64
+	Processed uint64
+	Remaining uint64
+}
+
+func collectMetrics(agent *WorkAgent) func() any {
+	return func() any {
+		state, ok := GetState(agent.name, process.PIDZero())
+		if !ok {
+			return nil
+		}
+		return Metrics{
+			Generated: state.generated,
+			Processed: state.processed,
+			Remaining: state.wanted - state.processed,
+		}
+	}
+}
 
 type WorkAgent struct {
 	name   gotp.Atom
@@ -26,47 +49,59 @@ func NewWorkAgent(name gotp.Atom, wanted uint64) *WorkAgent {
 
 func (w *WorkAgent) ChildSpec() supervisor.ChildSpec {
 	return agent.ChildSpec(
-		func() *state { return &state{wanted: w.wanted} },
+		func() *state {
+			s := state{wanted: w.wanted, next: true}
+			s.stepNextLog()
+			expvar.Publish(string(w.name)+"_metrics", expvar.Func(collectMetrics(w)))
+			return &s
+		},
 		process.Named(w.name),
+		process.ChannelSize(max(runtime.GOMAXPROCS(0)<<3, 32)),
 	)
 }
 
-func ContextGetWork[S process.Sendable](pctx process.Context, agnt S, from process.PID) (*workItem, bool) {
-	s, ok := agent.ContextGetAndUpdate(pctx, agnt, func(state *state) state {
+func GetWork[S process.Sendable](agnt S, from process.PID) (*workItem, bool) {
+	s, ok := agent.GetAndUpdate(agnt, from, func(state *state) state {
 		state.generate()
 		return *state
-	}, 5*time.Second)
+	}, 0) // indefinite timeout, this is an example that often runs at maximum capacity on systems to ensure "the system always moves forward"
 	if !ok || !s.next {
 		return nil, false
 	}
 	return s.workItem, s.next
 }
 
-func ContextSubmitProcessedWork[S process.Sendable](pctx process.Context, agnt S, work *workItem) (*workItem, bool) {
-	s, ok := agent.ContextGetAndUpdate(pctx, agnt, func(state *state) state {
-		state.receivedProcessed(work)
-		if state.wanted > state.generated && state.generated%100 == 0 || state.wanted == state.generated && state.generated > state.processed && state.processed%100 == 0 {
-			slog.WarnContext(pctx.Context(), "Submitted work", slog.Uint64("wanted", state.wanted), slog.Uint64("generated", state.generated), slog.Uint64("processed", state.processed))
+func SubmitProcessedWork[S process.Sendable](agnt S, from process.PID, work *workItem) (*workItem, bool) {
+	s, ok := agent.GetAndUpdate(agnt, from, func(state *state) state {
+		if state.receivedProcessed(work) {
+			slog.Warn("Submitted work", slog.Uint64("wanted", state.wanted), slog.Uint64("generated", state.generated), slog.Uint64("processed", state.processed), "from", from)
 		}
 		if state.processed == state.wanted {
-			slog.InfoContext(pctx.Context(), "All work processed", slog.Uint64("wanted", state.wanted), slog.Uint64("generated", state.generated), slog.Uint64("processed", state.processed))
-			agent.ContextStop(pctx, agnt, process.NORMAL)
+			slog.Info("All work processed", slog.Uint64("wanted", state.wanted), slog.Uint64("generated", state.generated), slog.Uint64("processed", state.processed), "from", from)
+			agent.Stop(agnt, process.NORMAL)
 		}
 		return *state
-	}, 5*time.Second)
+	}, 0) // indefinite timeout, this is an example that often runs at maximum capacity on systems to ensure "the system always moves forward"
 	if !ok || !s.next {
 		return nil, false
 	}
 	return s.workItem, s.next
+}
+
+func GetState[S process.Sendable](agnt S, from process.PID) (state, bool) {
+	return agent.Get(agnt, from, func(state state) state { return state }, 0) // indefinite timeout, this is an example that often runs at maximum capacity on systems to ensure "the system always moves forward"
 }
 
 type state struct {
-	wanted, generated, processed uint64
-	next                         bool
-	workItem                     *workItem
+	wanted, generated, processed, nextLog uint64
+	next                                  bool
+	workItem                              *workItem
 }
 
 func (s *state) generate() {
+	if !s.next {
+		return
+	}
 	if s.generated >= s.wanted {
 		s.workItem = nil
 		s.next = false
@@ -76,15 +111,53 @@ func (s *state) generate() {
 	s.next = true
 	s.workItem = &workItem{
 		id:   gotp.Atom(fmt.Sprintf("work-%d", s.generated)),
-		need: uint64(rand.Intn(56) + 5),
+		need: uint64(rand.Intn(6) + 5),
 	}
 }
 
-func (s *state) receivedProcessed(work *workItem) {
+func (s *state) receivedProcessed(work *workItem) (log bool) {
 	if work.need == work.done {
 		s.processed++
 		s.generate()
 	}
+	if s.processed >= s.nextLog {
+		s.stepNextLog()
+		return true
+	}
+	return false
+}
+
+// func (s *state) stepNextLog() {
+// 	if s.wanted == 0 || s.processed >= s.wanted {
+// 		s.nextLog = s.wanted + 1
+// 		return
+// 	}
+// 	base := s.processed
+// 	pos := float64(s.processed) / float64(s.wanted)
+// 	if pos < 0 {
+// 		pos = 0
+// 	} else if pos > 1 {
+// 		pos = 1
+// 	}
+// 	maxI := float64(s.wanted) * 0.01
+// 	minI := 1.0
+// 	easeIn := math.Pow(pos, 4.0)
+// 	interval := maxI - (maxI-minI)*easeIn
+// 	step := uint64(math.Max(1, math.Round(interval)))
+// 	s.nextLog = base + step
+// }
+
+func (s *state) stepNextLog() {
+	// we step by every 0.01% unless e are less then 10K work items in which case we step by every 100
+	if s.wanted == 0 || s.processed >= s.wanted {
+		s.nextLog = s.wanted + 1
+		return
+	}
+	step := uint64(math.Max(1, math.Round(float64(s.wanted)*0.01)))
+	if s.wanted <= 10000 {
+		step = 100
+	}
+	s.nextLog = s.processed + step
 }
 
 type workItem struct {

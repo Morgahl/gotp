@@ -3,19 +3,14 @@ package process
 import (
 	"context"
 	"errors"
-	"runtime"
 	"slices"
+	"sync/atomic"
 
 	"github.com/Morgahl/gotp"
 	"github.com/Morgahl/gotp/assert"
 	"github.com/Morgahl/gotp/dbg"
-	"github.com/Morgahl/gotp/internal/pid"
+	"github.com/Morgahl/gotp/term"
 )
-
-type PID = pid.PID
-
-func ComparePID(a, b PID) int { return pid.Compare(a, b) }
-func PIDZero() PID            { return pid.Zero() }
 
 type Startable interface {
 	Start(opts ...SpawnOpt) (PID, error)
@@ -24,19 +19,20 @@ type Startable interface {
 type RunFn func(Context) error
 
 type process struct {
-	pid             PID
-	name            gotp.Atom
-	flags           ProcessFlags
-	state           processState
-	exitReason      error
-	context         context.Context
-	contextCancel   context.CancelCauseFunc
-	deregPidHandle  func()
-	deregNameHandle func()
+	pid         PID
+	name        gotp.Atom
+	flags       Flags
+	state       processState
+	exitReason  error
+	deregHandle func()
+
+	// context management structures
+	context       context.Context
+	contextCancel context.CancelCauseFunc
 
 	// message passing structures
-	mailbox    []Message
-	signalChan chan signal[Message]
+	mailbox    []term.Term
+	signalChan chan signal[term.Term]
 
 	// bookkeeping structures
 	messageSkips []int
@@ -46,12 +42,12 @@ type process struct {
 	monitors refMap
 }
 
-func build(opts []SpawnOpt) *process {
+func build(pid PID, opts []SpawnOpt) *process {
 	p := &process{
-		pid:        nextPID(),
+		pid:        pid,
 		links:      newRefMap(),
 		monitors:   newRefMap(),
-		signalChan: make(chan signal[Message], CHANNEL_SIZE),
+		signalChan: make(chan signal[term.Term], CHANNEL_SIZE),
 	}
 	p.context, p.contextCancel = context.WithCancelCause(context.Background())
 	p.context = context.WithValue(p.context, gotp.Atom("pid"), p.pid)
@@ -59,7 +55,7 @@ func build(opts []SpawnOpt) *process {
 		opt(p)
 	}
 	if p.mailbox == nil {
-		p.mailbox = make([]Message, 0, MAILBOX_SIZE)
+		p.mailbox = make([]term.Term, 0, MAILBOX_SIZE)
 	}
 	if p.name != "" {
 		p.context = context.WithValue(p.context, gotp.Atom("name"), p.name)
@@ -67,34 +63,39 @@ func build(opts []SpawnOpt) *process {
 	return p
 }
 
-func finalizer(p *process) {
-	// if p.exitReason != nil {
-	// 	p.contextCancel(p.exitReason)
-	// }
-	// p.links.m = nil
-	// p.monitors.m = nil
-	// p.mailbox = nil
-	// p.signalChan = nil
-}
-
-func Spawn(fn RunFn, opts ...SpawnOpt) Ref {
-	p := build(opts)
-	runtime.SetFinalizer(p, finalizer)
-	p.state = STARTED_STATE
+func Spawn(fn RunFn, opts ...SpawnOpt) (Ref, error) {
+	p := build(nextPID(), opts)
 	ref := newRef(p)
-	p.deregPidHandle = registerPID(p.pid, ref)
-	if p.name != "" {
-		p.deregNameHandle = registerNamed(p.name, ref)
+
+	if err := pidTree.Store(p.pid.raw, ref); err != nil {
+		return Ref{}, err
 	}
+
+	if p.name != "" {
+		if err := nameTree.Store(string(p.name), ref); err != nil {
+			pidTree.Delete(p.pid.raw)
+			return Ref{}, err
+		}
+	}
+
+	p.deregHandle = func() {
+		pidTree.Delete(p.pid.raw)
+		if p.name != "" {
+			nameTree.Delete(string(p.name))
+		}
+	}
+
+	p.state = STARTED_STATE
 	go p.run(fn)
-	return ref
+
+	return ref, nil
 }
 
-func SpawnLink(fn RunFn, linked Ref, opts ...SpawnOpt) Ref {
+func SpawnLink(fn RunFn, linked Ref, opts ...SpawnOpt) (Ref, error) {
 	return Spawn(fn, append([]SpawnOpt{Link(linked)}, opts...)...)
 }
 
-func SpawnMonitor(fn RunFn, monitor Ref, opts ...SpawnOpt) Ref {
+func SpawnMonitor(fn RunFn, monitor Ref, opts ...SpawnOpt) (Ref, error) {
 	return Spawn(fn, append([]SpawnOpt{Monitored(monitor)}, opts...)...)
 }
 
@@ -103,13 +104,9 @@ func (p *process) run(runFn RunFn) {
 	defer func() {
 		p.exitReason = dbg.Recover(recover(), "process.run", p.exitReason)
 		p.contextCancel(p.exitReason)
-		if p.deregNameHandle != nil {
-			p.deregNameHandle()
-			p.deregNameHandle = nil
-		}
-		if p.deregPidHandle != nil {
-			p.deregPidHandle()
-			p.deregPidHandle = nil
+		if p.deregHandle != nil {
+			p.deregHandle()
+			p.deregHandle = nil
 		}
 		for ref := range p.monitors.refs() {
 			ref.send(downSignal(p.pid, ref, p.exitReason))
@@ -121,7 +118,6 @@ func (p *process) run(runFn RunFn) {
 		for range p.signalChan {
 			// drain the channel
 		}
-		p.signalChan = nil
 		p.state = EXITED_STATE
 	}()
 	if err := runFn(pctx); err != nil {
@@ -129,7 +125,8 @@ func (p *process) run(runFn RunFn) {
 	}
 }
 
-func (p *process) send(s signal[Message]) {
+func (p *process) send(s signal[term.Term]) {
+	defer atomic.AddUint64(&processSendCount, 1)
 	defer func() { recover() }()
 	p.signalChan <- s
 }
@@ -180,14 +177,14 @@ func (p *process) garbageCollect() {
 	p.messageSkips = p.messageSkips[:0]
 }
 
-// this must always be called while the stateLock is at least read-locked and the mailboxLock is write-locked
-func (p *process) pushMessage(m Message) {
+// must be called from the process's own goroutine
+func (p *process) pushMessage(m term.Term) {
 	if p.state == STARTED_STATE {
 		p.mailbox = append(p.mailbox, m)
 	}
 }
 
-// this must always be called while the stateLock is at least read-locked and the mailboxLock is write-locked
+// must be called from the process's own goroutine
 func (p *process) linkRequest(re RequestMsg[Ref]) {
 	p.links.push(re.From, re.Message)
 	re.Ref.send(linkReplySignal(ReplyMsg[Ref]{
@@ -201,17 +198,17 @@ func (p *process) linkReply(re ReplyMsg[Ref]) {
 	p.links.push(re.From, re.Message)
 }
 
-// this must always be called while the stateLock is at least read-locked and the mailboxLock is write-locked
+// must be called from the process's own goroutine
 func (p *process) unlink(re RequestMsg[Ref]) {
 	p.links.remove(re.From, re.Message)
 }
 
-// this must always be called while the stateLock is at least read-locked and the mailboxLock is write-locked
+// must be called from the process's own goroutine
 func (p *process) monitor(re RequestMsg[Ref]) {
 	p.monitors.push(re.From, re.Message)
 }
 
-// this must always be called while the stateLock is at least read-locked and the mailboxLock is write-locked
+// must be called from the process's own goroutine
 func (p *process) deMonitor(re RequestMsg[Ref]) {
 	p.monitors.remove(re.From, re.Message)
 }
@@ -265,15 +262,15 @@ func (p *process) handleExitSignal(f signalFlags, e exitSig) {
 	}
 }
 
-// this must always be called while the stateLock is at least read-locked and the mailboxLock is write-locked
+// must be called from the process's own goroutine
 func (p *process) down(down DownMsg) {
 	if p.monitors.contains(down.From, down.Ref) {
 		p.pushMessage(down)
 	}
 }
 
-// this must always be called while the stateLock is at least read-locked and the mailboxLock is write-locked
-func (p *process) aliveRequest(req RequestMsg[Message]) {
+// must be called from the process's own goroutine
+func (p *process) aliveRequest(req RequestMsg[term.Term]) {
 	var err error
 	if p.state != STARTED_STATE {
 		err = errors.New("process not started")
@@ -286,13 +283,13 @@ func (p *process) aliveRequest(req RequestMsg[Message]) {
 	}
 }
 
-// this must always be called while the stateLock is at least read-locked and the mailboxLock is write-locked
+// must be called from the process's own goroutine
 func (p *process) aliveReply(r ReplyMsg[error]) {
 	p.pushMessage(r)
 }
 
-// handleSignal is always called from a functions that has the mailboxLock write-locked as well as the stateLock read-locked.
-func (p *process) handleSignal(s signal[Message]) {
+// handleSignal must be called from the process's own goroutine.
+func (p *process) handleSignal(s signal[term.Term]) {
 	assert.AssertF(p.state == STARTING_STATE || p.state == STARTED_STATE, "process.handleSignal: unexpected process state %s for signal: %#v", p.state, s)
 	switch s._type {
 	case LINK_SIGNAL:
@@ -321,7 +318,7 @@ func (p *process) handleSignal(s signal[Message]) {
 		down := assert.TypeF[DownMsg](s.message, "process.handleSignal: expected exit for DOWN_SIGNAL, got %T")
 		p.down(down)
 	case ALIVE_REQUEST_SIGNAL:
-		req := assert.TypeF[RequestMsg[Message]](s.message, "process.handleSignal: expected message for ALIVE_REQUEST_SIGNAL, got %T")
+		req := assert.TypeF[RequestMsg[term.Term]](s.message, "process.handleSignal: expected message for ALIVE_REQUEST_SIGNAL, got %T")
 		p.aliveRequest(req)
 	case ALIVE_REPLY_SIGNAL:
 		err := assert.TypeF[ReplyMsg[error]](s.message, "process.handleSignal: expected Reply[error] for ALIVE_REPLY_SIGNAL, got %T")

@@ -1,8 +1,10 @@
 package main
 
 import (
+	"fmt"
 	"log/slog"
 
+	"github.com/Morgahl/gotp/dbg"
 	"github.com/Morgahl/gotp/internal/grts"
 	"github.com/Morgahl/gotp/logger"
 
@@ -17,6 +19,13 @@ func main() {
 	slog.Info("main: starting application",
 		slog.Any("name", game.Game{}.Name()),
 		slog.Any("version", game.Game{}.Version()))
-	reason := grts.Run(game.Game{})
+	// reason := grts.Run(game.Game{})
+	reason := grts.Boot(grts.Flags{}, game.Game{})
 	slog.Info("main: application exited", slog.Any("reason", reason))
+	switch reason := reason.(type) {
+	case dbg.Recovered:
+		fmt.Println(reason)
+	default:
+		// nothing to do
+	}
 }

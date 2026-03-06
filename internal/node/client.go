@@ -21,11 +21,8 @@ type Client struct {
 }
 
 func NewClient(server gotp.Atom, addr string, cookie Cookie, cert tls.Certificate) *Client {
-	// dbg.Assert(len(cookie) >= 64, "Cookie must be at least 64 bytes long")
 	assert.GreaterOrEq(len(cookie), 64, "Cookie must be at least 64 bytes long")
-	// serverName, err := ParseName(server)
-	// dbg.AssertNil(err, "Invalid server name: %s", err)
-	serverName := assert.Ok(ParseName(server))("Invalid server name: %s")
+	serverName := assert.OkF(ParseName(server))("Invalid server name: %s")
 
 	return &Client{
 		server: serverName,
@@ -37,14 +34,11 @@ func NewClient(server gotp.Atom, addr string, cookie Cookie, cert tls.Certificat
 
 func (c *Client) Connect() {
 	slog.Info("Dialing server", "addr", c.addr, "server", c.server)
-	// conn, err := icrypto.Dial(c.addr, c.cert)
-	// dbg.AssertNil(err, "Failed to dial server %s: %s", c.addr, err)
 	conn := assert.OkF(icrypto.Dial(c.addr, c.cert))("Failed to dial server %s: %s", c.addr)
 
 	closeConn := true
 	defer func() {
 		if closeConn {
-			// dbg.AssertNil(conn.Close(), "Failed to close connection to %s: %s", c.addr, err)
 			assert.NilF(conn.Close(), "Failed to close connection to %s: %s", c.addr)
 		}
 	}()
@@ -65,12 +59,12 @@ func (c *Client) Connect() {
 
 	// HandshakeSYNACK <<<< Server
 	rNonce := assert.OkF(icrypto.ReadNonce(conn))("Failed to read rNonce from %s: %s", conn.RemoteAddr())
-	rHmac := assert.OkF(icrypto.ReadHMAC(conn))("Failed to read HMAC from %s: %s", conn.RemoteAddr())
-	assert.AssertF(icrypto.VerifyMAC([]byte(c.cookie), rNonce, rHmac), "Bad handshake invalid HMAC from %s", conn.RemoteAddr())
+	rMac := assert.OkF(icrypto.ReadMAC(conn))("Failed to read MAC from %s: %s", conn.RemoteAddr())
+	assert.AssertF(icrypto.VerifyMAC([]byte(c.cookie), rNonce, rMac), "Bad handshake invalid HMAC from %s", conn.RemoteAddr())
 
 	// Ensure nonces and HMACs are not equal
 	assert.RefuteF(subtle.ConstantTimeCompare(rNonce[:], nonce[:]) == 1, "Bad handshake response nonce cannot match nonce sent to %s", conn.RemoteAddr())
-	assert.RefuteF(subtle.ConstantTimeCompare(rHmac[:], hmac[:]) == 1, "Bad handshake response HMAC cannot match HMAC sent to %s", conn.RemoteAddr())
+	assert.RefuteF(subtle.ConstantTimeCompare(rMac[:], hmac[:]) == 1, "Bad handshake response HMAC cannot match HMAC sent to %s", conn.RemoteAddr())
 
 	// HandshakeACK >>>> Server
 	slog.Info("Building handshake for server", "addr", c.addr)

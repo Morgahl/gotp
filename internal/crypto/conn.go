@@ -11,6 +11,7 @@ func Listen(addr string, cert tls.Certificate) (net.Listener, error) {
 		var netErr *net.AddrError
 		// TODO: string matching an error here?
 		if errors.As(err, &netErr) && netErr.Err == "missing port in address" {
+			// TODO: We will need to define a range via config/env later on
 			addr = net.JoinHostPort(addr, "0")
 		} else {
 			return nil, err

@@ -38,28 +38,28 @@ const (
 	CHANNEL_SIZE = 20
 )
 
-type ProcessFlags uint8
+type Flags uint8
 
 const (
-	// NO_PROCESS_FLAGS is used to indicate that no flags are set and is used as a default value
-	NO_PROCESS_FLAGS ProcessFlags = 0
+	// NO_FLAGS is used to indicate that no flags are set and is used as a default value
+	NO_FLAGS Flags = 0
 
 	// SENSITIVE_FLAG is used to indicate that the process is sensitive for logging and inspection purposes
-	SENSITIVE_FLAG ProcessFlags = 1 << iota
+	SENSITIVE_FLAG Flags = 1 << iota
 
 	// TRAP_EXIT_FLAG is used to indicate that the process should trap exit signals
 	TRAP_EXIT_FLAG
 )
 
-func (f ProcessFlags) IsSensitive() bool {
+func (f Flags) IsSensitive() bool {
 	return f&SENSITIVE_FLAG != 0
 }
 
-func (f ProcessFlags) IsTrapExit() bool {
+func (f Flags) IsTrapExit() bool {
 	return f&TRAP_EXIT_FLAG != 0
 }
 
-func (f ProcessFlags) String() string {
+func (f Flags) String() string {
 	var flags []string
 	if f.IsSensitive() {
 		flags = append(flags, "sensitive")

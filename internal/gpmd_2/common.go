@@ -1,5 +1,5 @@
 package gpmd
 
 const (
-	DEFAULT_BIND = "localhost:4469"
+	DEFAULT_BIND = "[::]:4469"
 )

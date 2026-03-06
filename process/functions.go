@@ -2,37 +2,39 @@ package process
 
 import (
 	"context"
+	"sync/atomic"
 	"time"
 
 	"github.com/Morgahl/gotp"
-	"github.com/Morgahl/gotp/internal/pid"
+	"github.com/Morgahl/gotp/term"
 )
 
 type Sendable interface {
 	Ref | PID | gotp.Atom
 }
 
-func Send[S Sendable](to S, m Message) {
+func Send[S Sendable](to S, m term.Term) {
+	defer atomic.AddUint64(&globalSendCount, 1)
 	defer func() { recover() }()
 	switch v := any(to).(type) {
 	case Ref:
 		v.send(messageSignal(no_FLAGS, m))
 
 	case PID:
-		// TODO: this currently contends a global mutex, we should consider a more efficient way to send messages to PIDs
 		sendPID(v, m)
 
 	case gotp.Atom:
-		// TODO: this currently contends a global mutex, we should consider a more efficient way to send messages to named processes
 		sendNamed(v, m)
 	}
 }
 
-func SendAfter[S Sendable](s S, m Message, delay time.Duration) *time.Timer {
+func SendAfter[S Sendable](s S, m term.Term, delay time.Duration) *time.Timer {
 	return time.AfterFunc(delay, func() { Send(s, m) })
 }
 
-func ReceiveWithTimeout[M Message](pctx Context, timeout time.Duration) (M, bool, error) {
+func Receive[M term.Term](pctx Context) (M, bool, error) { return receive[M, struct{}](pctx, nil) }
+
+func ReceiveWithTimeout[M term.Term](pctx Context, timeout time.Duration) (M, bool, error) {
 	var after <-chan time.Time
 	if timeout > 0 {
 		after = time.After(timeout)
@@ -40,7 +42,7 @@ func ReceiveWithTimeout[M Message](pctx Context, timeout time.Duration) (M, bool
 	return receive[M](pctx, after)
 }
 
-func ReceiveContext[M Message](pctx Context, ctx context.Context) (M, bool, error) {
+func ReceiveContext[M term.Term](pctx Context, ctx context.Context) (M, bool, error) {
 	m, ok, err := receive[M](pctx, ctx.Done())
 	if err == nil {
 		err = context.Cause(ctx)
@@ -48,10 +50,17 @@ func ReceiveContext[M Message](pctx Context, ctx context.Context) (M, bool, erro
 	return m, ok, err
 }
 
-func receive[M Message, D any](pctx Context, done <-chan D) (_ M, _ bool, reason error) {
+func receive[M term.Term, D any](pctx Context, done <-chan D) (_ M, _ bool, reason error) {
 	var readOffset int
 	var messageSkipOffset int
 	defer pctx.process.maybeGarbageCollect()
+	// // we loop through signals before processing messages to ensure that we handle any pending signals (like exits)
+	// // before processing any messages, this ensures that we don't process messages when we're already exiting, and
+	// // that we handle exit signals as soon as possible to avoid doing unnecessary work when we're already exiting.
+	// // Additionally we only loop here a maxiumm of cap(pctx.process.signalChan)*2 + 1 times with a default
+	// // fallthorugh if empty to ensure that we don't get stuck in this loop if we're receiving signals faster than
+	// // we're processing them.
+	// for range cap(pctx.process.signalChan)*2 + 1 {
 	switch pctx.process.state {
 	case STARTING_STATE, STARTED_STATE:
 		select {
@@ -69,6 +78,7 @@ func receive[M Message, D any](pctx Context, done <-chan D) (_ M, _ bool, reason
 	case EXITING_STATE, EXITED_STATE:
 		goto EXIT
 	}
+	// }
 
 PROCESS_MESSAGES:
 	switch pctx.process.state {
@@ -120,6 +130,26 @@ func Exit[S Sendable](to S, reason error) {
 		sendPID(v, exitSignal(no_FLAGS, v, Ref{}, reason))
 
 	case gotp.Atom:
-		sendNamed(v, exitSignal(no_FLAGS, pid.Zero(), Ref{}, reason))
+		sendNamed(v, exitSignal(no_FLAGS, PIDZero(), Ref{}, reason))
 	}
+}
+
+const ErrBadArg gotp.Atom = "badarg"
+
+func Register(name gotp.Atom, ref Ref) error {
+	if name == "undefined" {
+		// TODO: maybe better error here?
+		return ErrBadArg
+	} else if !ref.IsValid() {
+		// TODO: maybe better error here?
+		return ErrBadArg
+	} else if err := nameTree.Store(name.String(), ref); err != nil {
+		// TODO: maybe better error here?
+		return ErrBadArg
+	}
+	return nil
+}
+
+func WhereIs(name gotp.Atom) Ref {
+	return namedRef(name)
 }

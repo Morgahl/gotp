@@ -1,8 +1,6 @@
 package game
 
 import (
-	"log/slog"
-
 	"github.com/Morgahl/gotp"
 	"github.com/Morgahl/gotp/process"
 	"github.com/Morgahl/gotp/supervisor"
@@ -39,19 +37,10 @@ func treeOfTeams(workAgent, team gotp.Atom, teams [][]gotp.Atom, crew []gotp.Ato
 			count *= len(t)
 		}
 		// prepend the work agent to the list of supervisors
-		supervisors = append([]supervisor.Supervisable{NewWorkAgent(workAgent, 2*uint64(count*len(crew)))}, supervisors...)
+		supervisors = append([]supervisor.Supervisable{NewWorkAgent(workAgent, 25*uint64(count*len(crew)))}, supervisors...)
 		return NewTeam("teams", DEFAULT_SUPERVISOR_OPTIONS, supervisors...)
 	}
 	return NewTeam(team, DEFAULT_SUPERVISOR_OPTIONS, supervisors...)
-}
-
-func buildTeams(workAgent gotp.Atom, teams, crew []gotp.Atom) []supervisor.Supervisable {
-	var supervisors []supervisor.Supervisable
-	supervisors = append(supervisors, NewWorkAgent(workAgent, 2*uint64(len(teams)*len(crew))))
-	for _, t := range teams {
-		supervisors = append(supervisors, NewTeam(t, DEFAULT_SUPERVISOR_OPTIONS, buildCrew(workAgent, t, crew)...))
-	}
-	return supervisors
 }
 
 type Team struct {
@@ -76,12 +65,13 @@ func (f *Team) ChildSpec() supervisor.ChildSpec {
 		Type:        supervisor.SUPERVISOR,
 		Significant: true,
 		Start: func(opts ...process.SpawnOpt) (process.Ref, error) {
-			return static.Start(f, nil, append([]process.SpawnOpt{process.Named(f.id)}, opts...)...)
+			opts = append([]process.SpawnOpt{process.Named(f.id)}, opts...)
+			return static.Start(f, nil, opts...)
 		},
 	}
 }
 
 func (f *Team) Init(pctx process.Context, opts gotp.Options) (supervisor.Options, []supervisor.Supervisable, error) {
-	slog.InfoContext(pctx.Context(), "Team.Init", "members", len(f.specs), "opts", opts)
+	// slog.InfoContext(pctx.Context(), "Team.Init", "members", len(f.specs), "opts", opts)
 	return f.flags, f.specs, nil
 }
